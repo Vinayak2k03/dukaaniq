@@ -1,0 +1,253 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Better Auth core models (fields match better-auth 1.7.12).
+// Do not rename fields; Better Auth reads and writes these directly.
+// ---------------------------------------------------------------------------
+
+model User {
+  id            String   @id
+  name          String
+  email         String   @unique
+  emailVerified Boolean  @default(false)
+  image         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @default(now()) @updatedAt
+
+  sessions    Session[]
+  accounts    Account[]
+  memberships MerchantMember[]
+
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @default(now()) @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+// ---------------------------------------------------------------------------
+// DukaanIQ domain models. Every table is scoped by merchantId.
+// ---------------------------------------------------------------------------
+
+enum BusinessCategory {
+  KIRANA
+  PHARMACY
+  RESTAURANT
+  APPAREL
+  ELECTRONICS
+  SALON
+  OTHER
+}
+
+enum MemberRole {
+  OWNER
+  STAFF
+}
+
+enum SaleStatus {
+  COMPLETED
+  CANCELLED
+  REFUNDED
+}
+
+enum RecommendationType {
+  RECOVER_CUSTOMER
+  GROW_PROFIT
+  UDHAAR_REMINDER
+}
+
+enum RecommendationStatus {
+  PENDING
+  ACCEPTED
+  DISMISSED
+  COMPLETED
+}
+
+enum ActionStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+}
+
+model Merchant {
+  id               String           @id @default(cuid())
+  shopName         String
+  businessCategory BusinessCategory
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  members         MerchantMember[]
+  customers       Customer[]
+  products        Product[]
+  sales           Sale[]
+  recommendations Recommendation[]
+  actionLogs      ActionLog[]
+
+  @@map("merchant")
+}
+
+model MerchantMember {
+  id         String     @id @default(cuid())
+  merchantId String
+  userId     String
+  role       MemberRole @default(OWNER)
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([merchantId, userId])
+  @@index([userId])
+  @@map("merchant_member")
+}
+
+model Customer {
+  id          String   @id @default(cuid())
+  merchantId  String
+  displayName String
+  customerRef String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  sales    Sale[]
+
+  @@unique([merchantId, customerRef])
+  @@index([merchantId])
+  @@map("customer")
+}
+
+model Product {
+  id           String   @id @default(cuid())
+  merchantId   String
+  name         String
+  sellingPrice Decimal  @db.Decimal(12, 2)
+  costPrice    Decimal  @db.Decimal(12, 2)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  merchant  Merchant   @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  saleItems SaleItem[]
+
+  @@index([merchantId, name])
+  @@map("product")
+}
+
+model Sale {
+  id          String     @id @default(cuid())
+  merchantId  String
+  customerId  String?
+  saleDate    DateTime
+  status      SaleStatus @default(COMPLETED)
+  totalAmount Decimal    @db.Decimal(12, 2)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  merchant Merchant   @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  customer Customer?  @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  items    SaleItem[]
+
+  @@index([merchantId, saleDate])
+  @@index([customerId])
+  @@map("sale")
+}
+
+model SaleItem {
+  id               String   @id @default(cuid())
+  saleId           String
+  productId        String
+  quantity         Decimal  @db.Decimal(12, 3)
+  unitSellingPrice Decimal  @db.Decimal(12, 2)
+  unitCostPrice    Decimal  @db.Decimal(12, 2)
+  createdAt        DateTime @default(now())
+
+  sale    Sale    @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([saleId])
+  @@index([productId])
+  @@map("sale_item")
+}
+
+model Recommendation {
+  id          String               @id @default(cuid())
+  merchantId  String
+  type        RecommendationType
+  status      RecommendationStatus @default(PENDING)
+  explanation String               @db.Text
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  merchant   Merchant    @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  actionLogs ActionLog[]
+
+  @@index([merchantId, status])
+  @@map("recommendation")
+}
+
+model ActionLog {
+  id               String       @id @default(cuid())
+  merchantId       String
+  recommendationId String?
+  actionType       String
+  status           ActionStatus @default(PENDING)
+  createdAt        DateTime     @default(now())
+
+  merchant       Merchant        @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  recommendation Recommendation? @relation(fields: [recommendationId], references: [id], onDelete: SetNull)
+
+  @@index([merchantId, createdAt])
+  @@index([recommendationId])
+  @@map("action_log")
+}
