@@ -80,3 +80,10 @@ test("correctable remaining subtracts earlier corrections", () => {
   assert.equal(correctableRemainingPaise(target, [{ amountPaise: 12000 }]), 38000);
   assert.equal(correctableRemainingPaise(target, [{ amountPaise: 60000 }]), 0);
 });
+
+test("pastGracePaise only counts credit more than graceDays past due", () => {
+  const entries = [e("a", "CREDIT_GIVEN", 100, "2026-09-01", "2026-10-20"), e("b", "CREDIT_GIVEN", 50, "2026-09-02", "2026-10-28")];
+  const a = computeAccount(entries, REF, 7);
+  assert.equal(a.overduePaise, 15000);
+  assert.equal(a.pastGracePaise, 10000);
+});

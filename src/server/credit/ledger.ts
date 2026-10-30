@@ -7,6 +7,7 @@ import { daysBetween } from "@/server/analytics/range";
  * Repayments (and decrease adjustments) are applied to the oldest credit first (FIFO), which
  * tells us which credit is still unpaid and whether any of it is past its due date.
  * Overdue = unpaid credit whose due date (Asia/Kolkata calendar day) is before the reference date.
+ * pastGracePaise = overdue credit that is also more than `graceDays` past due (reminder eligibility).
  */
 
 export type EntryType = "CREDIT_GIVEN" | "REPAYMENT_RECEIVED" | "ADJUSTMENT_INCREASE" | "ADJUSTMENT_DECREASE";
@@ -31,6 +32,7 @@ export type Account = {
   nextDueDate: string | null;
   overduePaise: number;
   daysOverdue: number;
+  pastGracePaise: number;
   status: CreditStatus;
 };
 
@@ -40,7 +42,7 @@ export const localYmd = (d: Date) => new Date(d.getTime() + IST_OFFSET_MS).toISO
 export const signedEffectPaise = (e: Pick<LedgerEntry, "type" | "amountPaise">) =>
   e.type === "CREDIT_GIVEN" || e.type === "ADJUSTMENT_INCREASE" ? e.amountPaise : -e.amountPaise;
 
-export function computeAccount(entries: LedgerEntry[], referenceDate: string): Account {
+export function computeAccount(entries: LedgerEntry[], referenceDate: string, graceDays = 0): Account {
   const sorted = [...entries].sort((a, b) => a.entryDate.getTime() - b.entryDate.getTime() || a.id.localeCompare(b.id));
   const sum = (type: EntryType) => sorted.filter((e) => e.type === type).reduce((t, e) => t + e.amountPaise, 0);
   const creditGivenPaise = sum("CREDIT_GIVEN");
@@ -61,6 +63,7 @@ export function computeAccount(entries: LedgerEntry[], referenceDate: string): A
   const overdueLots = unpaid.filter((l) => l.dueYmd !== null && l.dueYmd < referenceDate);
   const upcomingDue = unpaid.flatMap((l) => (l.dueYmd !== null && l.dueYmd >= referenceDate ? [l.dueYmd] : [])).sort();
   const overduePaise = overdueLots.reduce((t, l) => t + l.remainingPaise, 0);
+  const pastGracePaise = overdueLots.filter((l) => daysBetween(l.dueYmd ?? referenceDate, referenceDate) > graceDays).reduce((t, l) => t + l.remainingPaise, 0);
   const daysOverdue = overdueLots.reduce((m, l) => Math.max(m, daysBetween(l.dueYmd ?? referenceDate, referenceDate)), 0);
 
   const status: CreditStatus =
@@ -75,6 +78,7 @@ export function computeAccount(entries: LedgerEntry[], referenceDate: string): A
     nextDueDate: upcomingDue[0] ?? null,
     overduePaise,
     daysOverdue,
+    pastGracePaise,
     status,
   };
 }

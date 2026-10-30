@@ -8,6 +8,7 @@ const links = [
   { href: "/dashboard/recover-customers", label: "Recover Customers" },
   { href: "/dashboard/grow-profit", label: "Grow Profit" },
   { href: "/dashboard/udhaar", label: "Udhaar" },
+  { href: "/dashboard/action-centre", label: "Action Centre" },
   { href: "/dashboard/settings", label: "Settings" },
 ];
 
@@ -16,7 +17,7 @@ export function DashboardNav() {
   return (
     <nav aria-label="Main" className="flex gap-1 overflow-x-auto md:flex-col">
       {links.map(({ href, label }) => {
-        const active = pathname === href;
+        const active = pathname === href || (href !== "/dashboard" && pathname.startsWith(`${href}/`));
         return (
           <Link
             key={href}

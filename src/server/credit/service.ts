@@ -33,7 +33,7 @@ const entrySelect = { id: true, type: true, amount: true, entryDate: true, dueDa
 
 export type AccountRow = { customerId: string; name: string; entryCount: number; account: Account };
 
-export async function listAccounts(merchant: Merchant, referenceDate: string): Promise<AccountRow[]> {
+export async function listAccounts(merchant: Merchant, referenceDate: string, graceDays = 0): Promise<AccountRow[]> {
   const [customers, entries] = await Promise.all([
     db.customer.findMany({ where: { merchantId: merchant.id }, select: { id: true, displayName: true }, orderBy: { displayName: "asc" } }),
     db.creditEntry.findMany({ where: { merchantId: merchant.id }, select: { ...entrySelect, customerId: true } }),
@@ -42,7 +42,7 @@ export async function listAccounts(merchant: Merchant, referenceDate: string): P
   for (const e of entries) byCustomer.set(e.customerId, [...(byCustomer.get(e.customerId) ?? []), toLedgerEntry(e)]);
   return customers.map((c) => {
     const list = byCustomer.get(c.id) ?? [];
-    return { customerId: c.id, name: c.displayName, entryCount: list.length, account: computeAccount(list, referenceDate) };
+    return { customerId: c.id, name: c.displayName, entryCount: list.length, account: computeAccount(list, referenceDate, graceDays) };
   });
 }
 

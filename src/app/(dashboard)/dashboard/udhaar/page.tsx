@@ -9,6 +9,7 @@ import { referenceDateFor } from "@/server/analytics/range";
 import { requireSession } from "@/server/auth/session";
 import { listAccounts, summarize, type AccountRow } from "@/server/credit/service";
 import { getCurrentMembership } from "@/server/merchant/access";
+import { GenerateRemindersForm } from "../action-centre/decision-forms";
 
 export const metadata: Metadata = { title: "Udhaar" };
 
@@ -78,6 +79,17 @@ export default async function UdhaarPage({ searchParams }: PageProps<"/dashboard
               </section>
             );
           })()}
+
+          <Panel title="Payment reminders" subtitle="DukaanIQ drafts a polite reminder for customers whose credit is overdue past the grace period. Nothing is sent until you approve it in the Action Centre.">
+            {membership.role === "OWNER" ? (
+              <div className="max-w-md space-y-2">
+                <GenerateRemindersForm />
+                <Link href="/dashboard/action-centre" className="inline-block text-sm font-medium text-indigo-700 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600">Open the Action Centre</Link>
+              </div>
+            ) : (
+              <p className="text-sm text-slate-600">Only the shop owner can prepare reminders.</p>
+            )}
+          </Panel>
 
           <form method="get" action="/dashboard/udhaar" className="flex flex-wrap items-end gap-3 rounded-2xl border border-slate-200 bg-white p-4">
             <div>

@@ -26,6 +26,8 @@ const toMs = (ymd: string) => {
 const toYmd = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 const isRealDate = (ymd: string) => toYmd(toMs(ymd)) === ymd;
 
+export const addDays = (ymd: string, n: number) => toYmd(toMs(ymd) + n * DAY_MS);
+
 export const referenceDateFor = (merchant: { isDemo: boolean }) =>
   merchant.isDemo ? DEMO_REFERENCE_DATE : toYmd(Date.now() + IST_OFFSET_MS);
 
