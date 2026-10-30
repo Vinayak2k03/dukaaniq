@@ -2,6 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { JsonFacts } from "@/components/dashboard/json-facts";
+import { EconomicsRange, OfferSummary } from "@/components/dashboard/offer-summary";
+import { env } from "@/lib/env";
+import { referenceDateFor } from "@/server/analytics/range";
 import { Panel } from "@/components/dashboard/panel";
 import { Badge } from "@/components/ui/badge";
 import { formatDateTimeIST, formatLocalDate } from "@/lib/money";
@@ -13,7 +16,8 @@ import { getRecommendationDetail } from "@/server/recommendations/service";
 import { STATUS_LABEL, STATUS_STYLE } from "@/server/recommendations/state";
 import { renderForCustomer } from "@/server/recommendations/text";
 import { AlternativeForm, ApproveForm, ExecuteForm, RejectForm } from "../decision-forms";
-import { ChevronLeft, Sparkles, Shield, Users, MessageSquare, Clock, AlertCircle } from "@/components/ui/icons";
+import { VoiceApprove } from "./voice-approve";
+import { ChevronLeft, Users, MessageSquare } from "@/components/ui/icons";
 
 export const metadata: Metadata = { title: "Review Recommendation" };
 
@@ -50,7 +54,12 @@ export default async function RecommendationDetailPage({
   const reasonLabel = (r: string | null) => DECLINE_REASONS.find(([v]) => v === r)?.[1] ?? r;
   const changes = asRecord(version.offerTerms).changesFromPrevious;
   const run = version.actionLogs[0];
-  const source = asRecord(version.evidence).messageSource === "sarvam" ? "Sarvam AI (Phased)" : "Deterministic Template";
+  const source = asRecord(version.evidence).messageSource === "sarvam" ? "Sarvam AI" : "Deterministic Template";
+  const highlights = asRecord(version.evidence).highlights;
+  const summary = asRecord(version.offerTerms).summary;
+  const termLines = Array.isArray(summary) ? summary.map(String) : [];
+  const hasRange = Array.isArray(asRecord(version.economics).scenarios) || typeof asRecord(version.economics).maxExposurePaise === "number";
+  const canAlternative = !rec.alternatives[0] && (rec.type === "CREDIT_REMINDER" || Boolean(asRecord(asRecord(version.evidence).tip).key));
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
@@ -106,6 +115,17 @@ export default async function RecommendationDetailPage({
         </div>
       )}
 
+      <VoiceApprove
+        sarvam={Boolean(env.SARVAM_API_KEY)}
+        referenceDate={referenceDateFor(membership.merchant)}
+        recommendationId={rec.id}
+        version={version.version}
+        title={version.title}
+        terms={termLines.length ? termLines : ["See the terms on this page"]}
+        pending={rec.status === "PENDING_APPROVAL"}
+        isOwner={isOwner}
+      />
+
       {/* Why & What Happens If You Approve */}
       <Panel
         title="Executive Summary &amp; Opportunity Rationale"
@@ -145,7 +165,10 @@ export default async function RecommendationDetailPage({
           subtitle="Calculated strictly from ledger records — zero hallucinations"
           badge={<Badge variant="neutral" size="sm">Facts</Badge>}
         >
-          <JsonFacts data={version.evidence} hide={["messageSource"]} />
+          {Array.isArray(highlights) && highlights.length > 0 && (
+            <ul className="mb-3 list-disc space-y-1 pl-4 text-xs text-[#171A23]">{highlights.map((h) => <li key={String(h)}>{String(h)}</li>)}</ul>
+          )}
+          <JsonFacts data={version.evidence} hide={["messageSource", "highlights", "tip"]} />
         </Panel>
 
         <Panel
@@ -153,14 +176,24 @@ export default async function RecommendationDetailPage({
           subtitle="Scenario projections — estimates, not speculative promises"
           badge={<Badge variant="success" size="sm">ROI Model</Badge>}
         >
-          <JsonFacts data={version.economics} />
+          {hasRange ? <EconomicsRange economics={version.economics} /> : <JsonFacts data={version.economics} />}
         </Panel>
       </div>
 
       {/* Terms */}
       {Object.keys(asRecord(version.offerTerms)).filter((k) => k !== "changesFromPrevious").length > 0 && (
-        <Panel title="Policy &amp; Campaign Terms" subtitle="Configured parameters for this action">
-          <JsonFacts data={version.offerTerms} hide={["changesFromPrevious"]} />
+        <Panel title="Policy &amp; Campaign Terms" subtitle="Exact offer terms in this version">
+          {termLines.length > 0 ? (
+            <>
+              <OfferSummary terms={version.offerTerms} />
+              <details className="mt-3 text-xs text-[#737B8C]">
+                <summary className="cursor-pointer">All stored parameters</summary>
+                <div className="mt-2"><JsonFacts data={version.offerTerms} hide={["changesFromPrevious", "summary", "items", "limits", "timeWindow"]} /></div>
+              </details>
+            </>
+          ) : (
+            <JsonFacts data={version.offerTerms} hide={["changesFromPrevious"]} />
+          )}
         </Panel>
       )}
 
@@ -202,7 +235,7 @@ export default async function RecommendationDetailPage({
             <span className="font-mono text-[10px]">Target: {sample}</span>
           </div>
           <p className="whitespace-pre-wrap font-sans text-xs text-[#171A23] leading-relaxed">
-            {renderForCustomer(version.message, sample)}
+            {version.message ? renderForCustomer(version.message, sample) : "In-store tip: no customer message is sent."}
           </p>
         </div>
         {rec.type === "CREDIT_REMINDER" && (
@@ -213,6 +246,7 @@ export default async function RecommendationDetailPage({
       </Panel>
 
       {/* Executive Decision Panel */}
+      <div id="decision" />
       <Panel
         title="Executive Sign-Off &amp; Action Decision"
         subtitle="Your decision governs this recommendation"
@@ -253,7 +287,7 @@ export default async function RecommendationDetailPage({
                 <span>View the revised alternative proposal</span>
                 <ChevronLeft size={14} className="rotate-180" />
               </Link>
-            ) : rec.type === "CREDIT_REMINDER" ? (
+            ) : canAlternative ? (
               <AlternativeForm recommendationId={rec.id} />
             ) : null}
           </div>
