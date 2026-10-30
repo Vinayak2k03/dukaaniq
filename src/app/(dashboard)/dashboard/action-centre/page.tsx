@@ -3,6 +3,8 @@ import Link from "next/link";
 import { EmptyState, Panel } from "@/components/dashboard/panel";
 import { Badge } from "@/components/ui/badge";
 import { KpiCard } from "@/components/dashboard/kpi-card";
+import { ReminderOutcomesPanel } from "@/components/dashboard/reminder-outcomes";
+import { getReminderOutcomes } from "@/server/outcomes/service";
 import { env } from "@/lib/env";
 import { referenceDateFor } from "@/server/analytics/range";
 import { ActionCentreVoice } from "./action-centre-voice";
@@ -161,6 +163,7 @@ export default async function ActionCentrePage() {
     console.error("Action centre failed to load:", e);
   }
 
+  const outcomes = rows ? await getReminderOutcomes(membership.merchant.id).catch((e) => (console.error("Reminder outcomes failed to load:", e), null)) : null;
   const allRows = rows ?? [];
   const pendingCount = allRows.filter((r) => r.status === "PENDING_APPROVAL" || r.status === "DRAFT").length;
   const approvedCount = allRows.filter((r) => r.status === "APPROVED" || r.status === "EXECUTION_PENDING").length;
@@ -242,6 +245,8 @@ export default async function ActionCentrePage() {
           </div>
         </div>
       </div>
+
+      {outcomes ? <ReminderOutcomesPanel outcomes={outcomes} linkRecommendation /> : null}
 
       {/* Grouped Recommendation Tables */}
       {!rows ? (

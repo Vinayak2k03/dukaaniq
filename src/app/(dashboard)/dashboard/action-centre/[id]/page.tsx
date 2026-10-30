@@ -19,6 +19,8 @@ import { renderForCustomer } from "@/server/recommendations/text";
 import { AlternativeForm, ApproveForm, ExecuteForm, OutcomeForm, RejectForm } from "../decision-forms";
 import { VoiceApprove } from "./voice-approve";
 import { WhatsAppSendList } from "../whatsapp-send-list";
+import { ReminderOutcomesPanel } from "@/components/dashboard/reminder-outcomes";
+import { getReminderOutcomes } from "@/server/outcomes/service";
 import { whatsappLink } from "@/lib/whatsapp";
 import { ChevronLeft, Sparkles, Shield, Users, MessageSquare, Clock, AlertCircle } from "@/components/ui/icons";
 
@@ -61,6 +63,7 @@ export default async function RecommendationDetailPage({
   if (!detail) notFound();
 
   const { rec, version, events } = detail;
+  const reminderOutcomes = rec.type === "CREDIT_REMINDER" ? await getReminderOutcomes(membership.merchant.id, rec.id) : null;
   const executed = EXECUTED.includes(rec.status);
   const outcomes = executed ? await listOutcomes(membership.merchant.id, version.id) : [];
   const measured = summarizeOutcomes(outcomes, version.audience.length, version.economics);
@@ -344,6 +347,8 @@ export default async function RecommendationDetailPage({
           </p>
         )}
       </Panel>
+
+      {reminderOutcomes ? <ReminderOutcomesPanel outcomes={reminderOutcomes} /> : null}
 
       {/* Outcome verification: measured vs estimated (PRD 11.2, 15, 18) */}
       {executed && (
