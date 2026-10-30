@@ -149,6 +149,8 @@ export type TipFeedback = {
   excludeFestivals: string[];
   validityShiftDays: number;
   preferLargeAudience: boolean;
+  /** Recommendations whose rejection reason is already applied here (so an alternative does not apply it twice). */
+  appliedRejections: string[];
   /** Human-readable log of what was applied, shown as "changes from previous". */
   notes: string[];
 };
@@ -167,5 +169,6 @@ export const emptyFeedback = (): TipFeedback => ({
   excludeFestivals: [],
   validityShiftDays: 0,
   preferLargeAudience: false,
+  appliedRejections: [],
   notes: [],
 });

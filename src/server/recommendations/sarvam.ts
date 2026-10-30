@@ -24,9 +24,9 @@ const KIND_BRIEF: Record<MessageFacts["kind"], string> = {
 };
 
 /** The fact lines a model sees: only pre-formatted strings, never raw numbers to compute with. */
+const META = new Set(["kind", "language", "tone"]);
 function factLines(f: MessageFacts): string[] {
-  const { kind: _k, language: _l, tone: _t, ...rest } = f;
-  return Object.entries(rest).map(([k, v]) => `${k}: ${String(v)}`);
+  return Object.entries(f).flatMap(([k, v]) => (META.has(k) ? [] : [`${k}: ${String(v)}`]));
 }
 
 /** Sarvam AI wording for one message. Returns null (so the next provider runs) on any failure or unsafe output. */

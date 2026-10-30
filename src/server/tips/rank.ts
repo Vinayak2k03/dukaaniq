@@ -34,27 +34,38 @@ export function generateCandidates(ctx: TipContext, fb: TipFeedback, families: r
   return families
     .filter((f) => !fb.excludeFamilies.includes(f))
     .flatMap((f) => GENERATORS[f](ctx, fb))
-    .map(({ quality: _q, ...b }) => ({ ...b, score: scoreOf({ ...b, quality: _q }, fb), changes: [...fb.notes] }))
+    .map((b): Candidate => {
+      const { quality, ...rest } = b;
+      return { ...rest, score: scoreOf({ ...rest, quality }, fb), changes: [...fb.notes] };
+    })
     .sort((a, b) => b.score - a.score || a.key.localeCompare(b.key));
 }
 
 export type BatchOptions = { count: number; focus?: TipFamily[]; shown: Iterable<string>; open: Iterable<string> };
 
+const productSet = (c: Candidate) => (c.productIds.length ? [...c.productIds].sort().join("+") : null);
+
 /**
  * Next batch: the best `count` candidates not shown in this session and not already open in the Action Centre.
  * Without a focus, at most one tip per family per batch (diversity); with a focus, only those families.
+ * A combo on the same products as a tip already shown or picked is skipped, so the same idea is not repeated
+ * under another family.
  */
 export function selectBatch(ranked: Candidate[], o: BatchOptions): { batch: Candidate[]; remaining: number } {
-  const skip = new Set([...o.shown, ...o.open]);
+  const shown = new Set(o.shown);
+  const skip = new Set([...shown, ...o.open]);
   const focus = o.focus?.length ? new Set(o.focus) : null;
-  const pool = ranked.filter((c) => !skip.has(c.key) && (!focus || focus.has(c.family)));
+  const seenProducts = new Set(ranked.filter((c) => shown.has(c.key)).flatMap((c) => productSet(c) ?? []));
+  const pool = ranked.filter((c) => !skip.has(c.key) && (!focus || focus.has(c.family)) && !seenProducts.has(productSet(c) ?? ""));
   const used = new Set<TipFamily>();
   const batch: Candidate[] = [];
   for (const c of pool) {
     if (batch.length >= o.count) break;
-    if (!focus && used.has(c.family)) continue;
+    const products = productSet(c);
+    if ((!focus && used.has(c.family)) || (products && seenProducts.has(products))) continue;
     used.add(c.family);
+    if (products) seenProducts.add(products);
     batch.push(c);
   }
-  return { batch, remaining: pool.length - batch.length };
+  return { batch, remaining: pool.filter((c) => !batch.includes(c) && !seenProducts.has(productSet(c) ?? "")).length };
 }

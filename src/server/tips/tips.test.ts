@@ -29,6 +29,12 @@ test("'more tips' never repeats a shown or already-open tip", () => {
   assert.equal(new Set(second.map((c) => c.family)).size, 3);
 });
 
+test("the same product combo is never repeated under another family", () => {
+  const first = selectBatch(ranked, { count: 8, shown: [], open: [] }).batch;
+  const sets = first.filter((c) => c.productIds.length).map((c) => [...c.productIds].sort().join("+"));
+  assert.equal(new Set(sets).size, sets.length);
+});
+
 test("a focus returns only those families and may repeat a family", () => {
   const { batch } = selectBatch(ranked, { count: 3, focus: ["LOYALTY"], shown: [], open: [] });
   assert.deepEqual(batch.map((c) => c.key), ["LOYALTY:coupon", "LOYALTY:combo", "LOYALTY:credit"]);
@@ -151,7 +157,7 @@ test("economics: scenario range, capped discount and margin helpers", () => {
   const items = [{ productId: "a", name: "A", pricePaise: 24_500, costPaise: 20_500 }, { productId: "b", name: "B", pricePaise: 4_800, costPaise: 3_900 }];
   const price = comboPrice(items, 8, 5)!;
   assert.ok(price.comboPricePaise >= (20_500 + 3_900) * 1.05 && price.comboPricePaise < price.listPricePaise);
-  assert.match(couponCode("LOYAL", 10, "s1"), /^LOYAL10-[A-Z2-9]{4}$/);
+  for (const seed of ["s1", "dry-run", "test-session", "a", "b", "c", "d"]) assert.match(couponCode("LOYAL", 10, seed), /^LOYAL10-[A-Z2-9]{4}$/);
   assert.notEqual(couponCode("LOYAL", 10, "s1"), couponCode("LOYAL", 10, "s2"));
 });
 

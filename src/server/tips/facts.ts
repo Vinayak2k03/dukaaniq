@@ -90,3 +90,34 @@ export function draftFor(c: Candidate, w: Wording, facts: MessageFacts | null, o
     audience: c.audience.map((a) => ({ customerId: a.customerId, lastPurchaseAt: a.lastPurchaseDate ? new Date(`${a.lastPurchaseDate}T00:00:00Z`) : null, daysSinceLastPurchase: a.daysSince })),
   };
 }
+
+/**
+ * What changed between the rejected version's stored offer terms and a rebuilt offer, in plain words.
+ * An alternative with no changes is not offered (it would ask the merchant to approve the same thing again).
+ */
+export function describeChanges(oldTerms: Record<string, unknown>, next: Offer, oldAudience: number, newAudience: number, oldFestival?: string | null, newFestival?: string | null): string[] {
+  const out: string[] = [];
+  const money = (v: unknown) => rupeesText(Number(v ?? 0));
+  if (oldFestival && newFestival && oldFestival !== newFestival) out.push(`Festival: ${oldFestival} → ${newFestival}`);
+  if (next.kind === "COUPON") {
+    if (oldTerms.discountPct !== next.discountPct) out.push(`Discount: ${String(oldTerms.discountPct)}% → ${next.discountPct}%`);
+    if (oldTerms.capPaise !== next.capPaise) out.push(`Cap per bill: ${money(oldTerms.capPaise)} → ${rupeesText(next.capPaise)}`);
+    if (oldTerms.minSpendPaise !== next.minSpendPaise) out.push(`Minimum bill: ${money(oldTerms.minSpendPaise)} → ${rupeesText(next.minSpendPaise)}`);
+    const tw = oldTerms.timeWindow as { dow?: number; startHour?: number } | null | undefined;
+    if (next.timeWindow && (tw?.dow !== next.timeWindow.dow || tw?.startHour !== next.timeWindow.startHour)) out.push(`Time slot: now ${timeWindowText(next.timeWindow.dow, next.timeWindow.startHour, next.timeWindow.endHour, "ENGLISH")}`);
+    if (JSON.stringify(oldTerms.eligibleCategories) !== JSON.stringify(next.eligibleCategories)) out.push(`Categories: ${next.eligibleCategories === "ALL" ? "all" : next.eligibleCategories.join(", ")}`);
+  }
+  if (next.kind === "COMBO") {
+    const oldItems = Array.isArray(oldTerms.items) ? (oldTerms.items as { name: string }[]).map((i) => i.name).join(" + ") : "";
+    const newItems = next.items.map((i) => i.name).join(" + ");
+    if (oldItems !== newItems) out.push(`Combo: ${oldItems || "none"} → ${newItems}`);
+    if (oldTerms.comboPricePaise !== next.comboPricePaise) out.push(`Combo price: ${money(oldTerms.comboPricePaise)} → ${rupeesText(next.comboPricePaise)}`);
+  }
+  if (next.kind === "CREDIT_LIMIT") {
+    const oldLimit = (oldTerms.limits as { limitPaise: number }[] | undefined)?.[0]?.limitPaise;
+    if (oldLimit !== next.limits[0]?.limitPaise) out.push(`Udhaar limit: ${money(oldLimit)} → ${rupeesText(next.limits[0]?.limitPaise ?? 0)}`);
+  }
+  if ("validFrom" in next && oldTerms.validFrom !== next.validFrom) out.push(`Starts: ${formatLocalDate(String(oldTerms.validFrom))} → ${formatLocalDate(next.validFrom)}`);
+  if (oldAudience !== newAudience) out.push(`Audience: ${oldAudience} → ${newAudience} customers`);
+  return out;
+}

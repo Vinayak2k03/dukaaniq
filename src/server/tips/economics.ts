@@ -116,7 +116,7 @@ export function couponCode(prefix: string, pct: number, seed: string): string {
   let suffix = "";
   for (let i = 0; i < 4; i++) {
     suffix += CODE_ALPHABET[h % CODE_ALPHABET.length];
-    h = Math.floor(h / CODE_ALPHABET.length) ^ hashText(`${seed}:${i}`);
+    h = (Math.floor(h / CODE_ALPHABET.length) ^ hashText(`${seed}:${i}`)) >>> 0;
   }
   return `${prefix}${pct}-${suffix}`;
 }

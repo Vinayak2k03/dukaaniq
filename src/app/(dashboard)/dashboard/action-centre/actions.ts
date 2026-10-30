@@ -7,6 +7,7 @@ import { approveSchema, recommendationIdSchema, rejectSchema } from "@/lib/valid
 import { requireSession } from "@/server/auth/session";
 import { getCurrentMembership } from "@/server/merchant/access";
 import { approveRecommendation, createAlternative, createReminderProposals, executeSimulated, rejectRecommendation, type Result } from "@/server/recommendations/service";
+import { feedRejectionToSession } from "@/server/tips/service";
 
 export type DecisionState = {
   error?: string;
@@ -63,7 +64,12 @@ export async function rejectAction(_prev: DecisionState, fd: FormData): Promise<
   if ("error" in ctx) return ctx;
   const p = rejectSchema.safeParse(strings(fd));
   if (!p.success) return { fieldErrors: p.error.flatten().fieldErrors };
-  return guarded(async () => settle(await rejectRecommendation(ctx.merchant, ctx.actor, { recommendationId: p.data.recommendationId, version: p.data.version, reason: p.data.reason as DeclineReason, note: p.data.note }), "Rejected. Nothing will be sent."));
+  const reason = p.data.reason as DeclineReason;
+  return guarded(async () => {
+    const r = await rejectRecommendation(ctx.merchant, ctx.actor, { recommendationId: p.data.recommendationId, version: p.data.version, reason, note: p.data.note });
+    if (r.ok) await feedRejectionToSession(ctx.merchant, p.data.recommendationId, reason, p.data.note);
+    return settle(r, "Rejected. Nothing will be sent.");
+  });
 }
 
 export async function executeAction(_prev: DecisionState, fd: FormData): Promise<DecisionState> {

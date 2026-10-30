@@ -33,7 +33,7 @@ export function offPeakCandidates(ctx: TipContext, fb: TipFeedback): Built[] {
     const o = coupon.offer;
     const pctOfAvg = Math.round((s.orders / avg) * 100);
     const facts = [
-      `${slotLabel(s)} had ${s.orders} orders in the last ${h.weeksObserved} weeks with sales.`,
+      `${slotLabel(s)} had ${s.orders} order${s.orders === 1 ? "" : "s"} in the last ${h.weeksObserved} weeks with sales.`,
       `Your average 2-hour slot had ${Math.round(avg * 10) / 10} orders (this slot is at ${pctOfAvg}%).`,
       `Based on ${h.totalOrders} paid orders from ${dateText(h.fromDate)} to ${dateText(h.toDate)}.`,
     ];

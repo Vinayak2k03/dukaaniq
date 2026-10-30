@@ -15,7 +15,8 @@ export function festiveCandidates(ctx: TipContext, fb: TipFeedback): Built[] {
   const pool = ctx.customers.filter((c) => c.optedIn && activeOrCooling(c)).sort((a, b) => b.spend90Paise - a.spend90Paise || a.id.localeCompare(b.id));
   const audience = audienceOf(pool, fb);
   if (audience.length < 3) return [];
-  const uplift = pastUplift(ctx.daily, ctx.festivals, ctx.ref);
+  // Most recent past festival first: it is the closest comparison.
+  const uplift = pastUplift(ctx.daily, ctx.festivals, ctx.ref).sort((a, b) => b.startDate.localeCompare(a.startDate));
   const upliftFacts = uplift.length
     ? uplift.map((u) => `${u.festival} (${dateText(u.startDate)} to ${dateText(u.endDate)}): daily sales ${rupeesText(u.avgDailySalesPaise)} vs ${rupeesText(u.baselineAvgDailySalesPaise)} in the 4 weeks before (${u.upliftPct >= 0 ? "+" : ""}${u.upliftPct}%).`)
     : ["No past festival in the sales data to compare with."];
@@ -27,7 +28,10 @@ export function festiveCandidates(ctx: TipContext, fb: TipFeedback): Built[] {
     const window = { validFrom: from, validTill: f.endDate };
     if (window.validFrom > window.validTill) return [];
     const days = daysUntil(ctx, f.startDate);
-    const catRevenue = Object.fromEntries(cats.map((c) => [c, ctx.products.filter((p) => p.category === c).reduce((t, p) => t + p.revenue90Paise, 0)]));
+    const catRevenue = Object.fromEntries(
+      cats.map((c) => [c, ctx.products.filter((p) => p.category === c).reduce((t, p) => t + p.revenue90Paise, 0)] as const).sort((a, b) => b[1] - a[1]),
+    );
+    const topCats = Object.keys(catRevenue).slice(0, 3);
     const evidence = {
       festival: f.name,
       festivalDates: `${f.startDate} to ${f.endDate}`,
@@ -41,7 +45,7 @@ export function festiveCandidates(ctx: TipContext, fb: TipFeedback): Built[] {
     };
     const facts = [
       `${f.name} starts on ${dateText(f.startDate)}, in ${days} days.`,
-      `Last 90 days sales in ${cats.join(", ")}: ${Object.values(catRevenue).map(rupeesText).join(", ")}.`,
+      `Your top festival categories in the last 90 days: ${topCats.map((c) => `${c} ${rupeesText(catRevenue[c])}`).join(", ")}.`,
       ...upliftFacts,
       `${audience.length} opted-in customers bought in the last 30 days.`,
     ];
@@ -56,7 +60,7 @@ export function festiveCandidates(ctx: TipContext, fb: TipFeedback): Built[] {
         family: "FESTIVE",
         type: "FESTIVE",
         quality: 4 + nearness,
-        title: `${f.name} offer: ${o.discountPct}% off ${cats.slice(0, 3).join(", ")} for ${audience.length} customers`,
+        title: `${f.name} offer: ${o.discountPct}% off ${topCats.join(", ")}${cats.length > topCats.length ? " and more" : ""} for ${audience.length} customers`,
         why: `${facts[0]} ${facts[1]} ${upliftFacts[0]} A festive coupon (${o.discountPct}% off up to ${rupeesText(o.capPaise)}) from ${dateText(o.validFrom)} to ${dateText(o.validTill)} brings festival shopping to your shop.`,
         whyFacts: [...facts, `Offer: ${o.discountPct}% off up to ${rupeesText(o.capPaise)}, minimum bill ${rupeesText(o.minSpendPaise)}, valid ${dateText(o.validFrom)} to ${dateText(o.validTill)}.`],
         messageKind: "FESTIVE",

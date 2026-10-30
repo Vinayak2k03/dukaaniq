@@ -5,4 +5,6 @@ export const TYPE_LABEL: Record<string, string> = {
   SLOW_MOVING: "Slow-moving product",
   PEAK_TIMING: "Peak timing",
   LOYALTY: "Loyalty",
+  FESTIVE: "Festive offer",
+  OFF_PEAK: "Low-hours offer",
 };

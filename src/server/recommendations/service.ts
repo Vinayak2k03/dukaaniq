@@ -3,7 +3,9 @@ import type { Prisma } from "@/generated/prisma/client";
 import type { DeclineReason, RecommendationStatus, RecommendationType } from "@/generated/prisma/enums";
 import { db } from "@/lib/db";
 import { referenceDateFor } from "@/server/analytics/range";
+import { buildTipAlternative } from "@/server/tips/alternative";
 import type { Draft } from "./draft";
+import { TYPE_LABEL } from "./labels";
 import { detectReminders } from "./reminders";
 import { OPEN_STATUSES, canTransition } from "./state";
 import { renderForCustomer } from "./text";
@@ -127,11 +129,18 @@ export async function rejectRecommendation(merchant: Merchant, actor: Actor, inp
   }, TX);
 }
 
-/** Builds a revised proposal from a rejected one. The revision is a NEW recommendation that needs its own approval. */
+/**
+ * Builds a revised proposal from a rejected one. The revision is a NEW recommendation that needs its own approval.
+ * Credit reminders get a softer tone; growth tips (loyalty, festive, off-peak, bundle, win-back, ...) are rebuilt
+ * from fresh data with the decline reason applied (lower discount, other audience, later timing, ...).
+ */
 export async function createAlternative(merchant: Merchant, actor: Actor, recommendationId: string): Promise<Result<{ id: string }>> {
   const original = await db.recommendation.findFirst({
     where: { id: recommendationId, merchantId: merchant.id },
-    select: { id: true, type: true, status: true, alternatives: { select: { id: true }, take: 1 }, versions: { orderBy: { version: "desc" }, take: 1, select: { audience: { select: { customerId: true } } } } },
+    select: {
+      id: true, type: true, status: true, alternatives: { select: { id: true }, take: 1 },
+      versions: { orderBy: { version: "desc" }, take: 1, select: { evidence: true, offerTerms: true, approval: { select: { declineReason: true, note: true } }, audience: { select: { customerId: true } } } },
+    },
   });
   if (!original) return fail("Recommendation not found.");
   if (original.status !== "REJECTED") return fail("An alternative can only be requested after a rejection.");
@@ -139,12 +148,25 @@ export async function createAlternative(merchant: Merchant, actor: Actor, recomm
   const version = original.versions[0];
   const ref = referenceDateFor(merchant);
 
-  if (original.type !== "CREDIT_REMINDER") return fail("Alternatives are not available for this type of recommendation yet.");
-  const customerId = version?.audience[0]?.customerId;
-  const draft = (await detectReminders(merchant, ref, "softer", ["Message tone made softer."])).find((d) => d.audience[0]?.customerId === customerId) ?? null;
-  const failure = "This customer no longer has overdue credit.";
-  if (!draft) return fail(failure);
-  const created = draft;
+  let created: Draft;
+  if (original.type === "CREDIT_REMINDER") {
+    const customerId = version?.audience[0]?.customerId;
+    const draft = (await detectReminders(merchant, ref, "softer", ["Message tone made softer."])).find((d) => d.audience[0]?.customerId === customerId) ?? null;
+    if (!draft) return fail("This customer no longer has overdue credit.");
+    created = draft;
+  } else {
+    if (!version) return fail("Recommendation version not found.");
+    const r = await buildTipAlternative(merchant, {
+      id: original.id,
+      evidence: version.evidence,
+      offerTerms: version.offerTerms,
+      audienceSize: version.audience.length,
+      declineReason: version.approval?.declineReason ?? null,
+      note: version.approval?.note ?? null,
+    });
+    if (!r.ok) return fail(r.error);
+    created = r.draft;
+  }
 
   return db.$transaction(async (tx): Promise<Result<{ id: string }>> => {
     const rec = await lockRecommendation(tx, merchant.id, original.id);
@@ -163,7 +185,7 @@ export async function executeSimulated(merchant: Merchant, actor: Actor, recomme
     if (!rec) return fail("Recommendation not found.");
     const version = await tx.recommendationVersion.findUnique({
       where: { recommendationId_version: { recommendationId: rec.id, version: rec.currentVersion } },
-      select: { id: true, message: true, channel: true, audience: { select: { customerId: true, customer: { select: { displayName: true } } } } },
+      select: { id: true, title: true, message: true, channel: true, recommendation: { select: { type: true } }, audience: { select: { customerId: true, customer: { select: { displayName: true } } } } },
     });
     if (!version) return fail("Recommendation version not found.");
 
@@ -190,6 +212,17 @@ export async function executeSimulated(merchant: Merchant, actor: Actor, recomme
       skipDuplicates: true,
     });
     await tx.recommendation.update({ where: { id: rec.id }, data: { status: "SIMULATED" } });
+    const type = version.recommendation.type;
+    await tx.notification.create({
+      data: {
+        merchantId: merchant.id,
+        type: "OUTCOME_UPDATE",
+        title: type === "FESTIVE" ? "Festive campaign queued (simulated)" : `${TYPE_LABEL[type] ?? "Recommendation"} recorded (simulated)`,
+        body: `"${version.title}" was recorded as a simulated action for ${version.audience.length} customer${version.audience.length === 1 ? "" : "s"}. No real message was sent.`,
+        entityType: "recommendation",
+        entityId: rec.id,
+      },
+    });
     await tx.auditEvent.createMany({
       data: [
         { merchantId: merchant.id, actorId: actor.userId, eventType: "EXECUTION_REQUESTED", entityType: "recommendation", entityId: rec.id, entityVersion: rec.currentVersion },

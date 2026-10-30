@@ -66,7 +66,7 @@ export function loyaltyCandidates(ctx: TipContext, fb: TipFeedback): Built[] {
       whyFacts: [...facts, `Combo: ${names} for ${rupeesText(price.comboPricePaise)} instead of ${rupeesText(price.listPricePaise)}.`, `Combo cost is ${rupeesText(cost)}.`],
       messageKind: "LOYALTY_COMBO",
       festivalName: null,
-      offer: { kind: "COMBO", items: items.map(({ category: _c, ...i }) => i), ...price, ...v, usageLimitPerCustomer: 2 },
+      offer: { kind: "COMBO", items: items.map((i) => ({ productId: i.productId, name: i.name, pricePaise: i.pricePaise, costPaise: i.costPaise })), ...price, ...v, usageLimitPerCustomer: 2 },
       audience,
       audienceRule: rule,
       categories: [...new Set(items.map((i) => i.category))],
