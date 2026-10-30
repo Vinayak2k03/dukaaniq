@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Mic, Volume } from "@/components/ui/icons";
 import { useVoice, type VoiceLanguage } from "./use-voice";
+import { VoiceWave } from "./voice-wave";
 
 export type IntentResponse = {
   intent: string;
@@ -165,9 +166,10 @@ export function VoiceBar({ sarvam, placeholder, initialText, onCommand }: Props)
           aria-pressed={voice.listening}
           aria-label={voice.listening ? "Stop listening" : "Speak a command"}
           title={voice.listening ? "Stop" : "Speak"}
-          className={`inline-flex h-9 w-9 items-center justify-center rounded-full border transition-colors disabled:opacity-40 ${voice.listening ? "animate-pulse border-rose-300 bg-rose-50 text-rose-700" : "border-[#D0D5DD] bg-white text-[#4338CA] hover:bg-indigo-50"}`}
+          className={`relative inline-flex h-9 w-9 items-center justify-center rounded-full border transition-colors disabled:opacity-40 ${voice.listening ? "border-indigo-300 bg-indigo-600 text-white shadow-[0_0_14px_rgba(99,102,241,0.6)]" : "border-[#D0D5DD] bg-white text-[#4338CA] hover:bg-indigo-50"}`}
         >
-          <Mic size={16} />
+          {voice.listening ? <span aria-hidden className="absolute inset-0 animate-ping rounded-full bg-indigo-400/50 motion-reduce:hidden" /> : null}
+          <Mic size={16} className="relative" />
         </button>
         <input
           value={text}
@@ -181,6 +183,21 @@ export function VoiceBar({ sarvam, placeholder, initialText, onCommand }: Props)
           {busy ? "Working..." : "Send"}
         </button>
       </form>
+      {voice.listening || voice.transcribing ? (
+        <div role="status" aria-live="polite" className="mt-3 overflow-hidden rounded-xl bg-[#0B1020] px-4 pb-3 pt-2 shadow-inner">
+          <VoiceWave levelRef={voice.levelRef} mode={voice.listening ? "listening" : "thinking"} />
+          <div className="flex items-center justify-between gap-3 text-xs">
+            <span className="font-medium text-indigo-100">
+              {voice.listening ? "Listening... speak now" : "Understanding what you said..."}
+            </span>
+            {voice.listening ? (
+              <button type="button" onClick={voice.stop} className="rounded-full border border-white/20 px-3 py-1 font-semibold text-white hover:bg-white/10">
+                Done
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
       {voice.error ? <p role="alert" className="mt-2 text-xs text-rose-700">{voice.error}</p> : null}
       {turns.length > 1 && (
         <div className="mt-2 space-y-2">
