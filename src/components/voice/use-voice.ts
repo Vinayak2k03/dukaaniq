@@ -13,13 +13,19 @@ const NO_SPEECH_MS = 7_000;
 type AudioCtor = typeof AudioContext;
 type Meter = { stop: () => void; heardSpeech: () => boolean };
 
-type Recognition = { lang: string; interimResults: boolean; maxAlternatives: number; start(): void; stop(): void; onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null; onerror: ((e: { error: string }) => void) | null; onend: (() => void) | null };
+type RecognitionResult = ArrayLike<{ transcript: string }>;
+type Recognition = { lang: string; interimResults: boolean; maxAlternatives: number; start(): void; stop(): void; onresult: ((e: { results: ArrayLike<RecognitionResult> }) => void) | null; onerror: ((e: { error: string }) => void) | null; onend: (() => void) | null };
 type RecognitionCtor = new () => Recognition;
 
 const browserRecognition = (): RecognitionCtor | null => {
   if (typeof window === "undefined") return null;
   const w = window as unknown as { SpeechRecognition?: RecognitionCtor; webkitSpeechRecognition?: RecognitionCtor };
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
+};
+
+export type ListenOptions = {
+  /** Called with the words heard so far while the merchant is still speaking (browser recognition only). */
+  onInterim?: (text: string) => void;
 };
 
 /**
@@ -31,6 +37,10 @@ const browserRecognition = (): RecognitionCtor | null => {
 export function useVoice(sarvam: boolean) {
   const [listening, setListening] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
+  /** True while the mic hears speech. Changes only when it flips, so it is cheap to render. */
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  /** Set when stop() arrives before capture has begun (a very quick push-to-talk release). */
+  const stopRequested = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const useSarvam = useRef(sarvam);
   const stopRef = useRef<(() => void) | null>(null);
@@ -56,6 +66,7 @@ export function useVoice(sarvam: boolean) {
     let fired = false;
     let smooth = 0;
     let raf = 0;
+    let speaking = false;
     const tick = () => {
       analyser.getByteTimeDomainData(buf);
       let sum = 0;
@@ -68,6 +79,11 @@ export function useVoice(sarvam: boolean) {
       if (rms > SPEECH_RMS) {
         spoke = true;
         lastVoice = now;
+      }
+      const hearing = now - lastVoice < 300 && spoke;
+      if (hearing !== speaking) {
+        speaking = hearing;
+        setIsSpeaking(hearing);
       }
       if (onEnd && !fired) {
         const why = spoke && now - lastVoice > SILENCE_MS ? "silence" : !spoke && now - t0 > NO_SPEECH_MS ? "no-speech" : null;
@@ -86,6 +102,7 @@ export function useVoice(sarvam: boolean) {
         source.disconnect();
         void ctx.close();
         levelRef.current = 0;
+        setIsSpeaking(false);
       },
     };
   }, []);
@@ -101,7 +118,7 @@ export function useVoice(sarvam: boolean) {
   }, [stopMeter]);
 
   const viaBrowser = useCallback(
-    (language: VoiceLanguage) =>
+    (language: VoiceLanguage, opts: ListenOptions) =>
       new Promise<string | null>((resolve) => {
         const Ctor = browserRecognition();
         if (!Ctor) {
@@ -110,10 +127,14 @@ export function useVoice(sarvam: boolean) {
         }
         const r = new Ctor();
         r.lang = BCP47[language];
-        r.interimResults = false;
+        r.interimResults = true;
         r.maxAlternatives = 1;
         let text: string | null = null;
-        r.onresult = (e) => (text = e.results[0]?.[0]?.transcript ?? null);
+        // Interim and final results arrive in one list; joining it shows live words that the final text then replaces.
+        r.onresult = (e) => {
+          text = Array.from(e.results, (res) => res[0]?.transcript ?? "").join(" ").replace(/\s+/g, " ").trim() || null;
+          if (text) opts.onInterim?.(text);
+        };
         r.onerror = (e) => setError(e.error === "not-allowed" ? "Microphone permission was denied." : "Could not hear clearly. Try again or type instead.");
         let meterStream: MediaStream | null = null;
         r.onend = () => {
@@ -125,10 +146,11 @@ export function useVoice(sarvam: boolean) {
         stopRef.current = () => r.stop();
         setListening(true);
         r.start();
+        if (stopRequested.current) r.stop();
         // Speech recognition hides the mic, so open it a second time just to draw the level. Purely cosmetic.
         navigator.mediaDevices?.getUserMedia({ audio: true }).then((st) => {
           meterStream = st;
-          meterRef.current = startMeter(st);
+          meterRef.current = startMeter(st, () => r.stop());
         }, () => {});
       }),
     [startMeter, stopMeter],
@@ -158,6 +180,7 @@ export function useVoice(sarvam: boolean) {
     meterRef.current = meter;
     setListening(true);
     rec.start();
+    if (stopRequested.current) stopRec();
     await done;
     clearTimeout(timer);
     const heard = meter ? meter.heardSpeech() : true;
@@ -188,8 +211,9 @@ export function useVoice(sarvam: boolean) {
 
   /** Records one utterance and returns the transcript (null when nothing usable was heard). */
   const listen = useCallback(
-    async (language: VoiceLanguage): Promise<string | null> => {
+    async (language: VoiceLanguage, opts: ListenOptions = {}): Promise<string | null> => {
       setError(null);
+      stopRequested.current = false;
       const canRecord = "MediaRecorder" in window && Boolean(navigator.mediaDevices?.getUserMedia);
       if (!canRecord) useSarvam.current = false;
       if (useSarvam.current) {
@@ -205,12 +229,15 @@ export function useVoice(sarvam: boolean) {
           }
         }
       }
-      return viaBrowser(language);
+      return viaBrowser(language, opts);
     },
     [viaBrowser, viaSarvam, stopMeter],
   );
 
-  const stop = useCallback(() => stopRef.current?.(), []);
+  const stop = useCallback(() => {
+    stopRequested.current = true;
+    stopRef.current?.();
+  }, []);
 
   const speakBrowser = useCallback((text: string, language: VoiceLanguage) => {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
@@ -242,5 +269,5 @@ export function useVoice(sarvam: boolean) {
     [speakBrowser],
   );
 
-  return { listening, transcribing, levelRef, error, listen, stop, speak, setError };
+  return { listening, transcribing, isSpeaking, levelRef, error, listen, stop, speak, setError };
 }

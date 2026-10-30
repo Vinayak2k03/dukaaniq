@@ -72,11 +72,11 @@ const amountOf = (t: string) => {
 /** "Rahul ka ...", "Ramesh ji ko ...", "राहुल का ...", "in Rahul's account", "... for Rahul". Returns up to two words, without "ji". */
 const nameOf = (raw: string) => {
   const t = raw.trim();
-  const inAccount = t.match(/\b(?:in|to|for)\s+([\p{L}]+(?: [\p{L}]+)?)(?:'s|\s+ke|\s+ki|\s+ka)?\s+(?:account|khate|wallet|ledger)\b/iu);
+  const inAccount = t.match(/\b(?:in|to|for)\s+([\p{L}\p{M}]+(?: [\p{L}\p{M}]+)?)(?:'s|\s+ke|\s+ki|\s+ka)?\s+(?:account|khate|wallet|ledger)\b/iu);
   if (inAccount) return inAccount[1].trim();
-  const before = t.match(/^(?:mera |meri )?([\p{L}]+(?: [\p{L}]+)?)\s+(?:ji\s+|जी\s+)?(?:ka|ki|ko|ne|ke|का|की|को|ने|के)\s/u);
+  const before = t.match(/^(?:mera |meri )?([\p{L}\p{M}]+(?: [\p{L}\p{M}]+)?)\s+(?:ji\s+|जी\s+)?(?:ka|ki|ko|ne|ke|का|की|को|ने|के)\s/u);
   if (before) return before[1].replace(/\s+(ji|जी)$/u, "").trim();
-  const after = t.match(/\b(?:for|to|from|in)\s+([\p{L}]+(?: [\p{L}]+)?)\s*$/iu) ?? t.match(/\b(?:for|to|from|in)\s+([\p{L}]+)/iu);
+  const after = t.match(/\b(?:for|to|from|in)\s+([\p{L}\p{M}]+(?: [\p{L}\p{M}]+)?)\s*$/iu) ?? t.match(/\b(?:for|to|from|in)\s+([\p{L}\p{M}]+)/iu);
   return after ? after[1].trim() : undefined;
 };
 
@@ -119,3 +119,104 @@ export function matchIntent(input: string): IntentResult | null {
 }
 
 export const unknownIntent = (): IntentResult => ({ intent: "UNKNOWN", params: {}, confidence: 0, needsConfirmation: false, source: "none" });
+
+/* ---------- Conversational slot-filling ---------- */
+
+export const SLOT_INTENTS = ["ADD_CREDIT", "RECORD_REPAYMENT"] as const;
+export type SlotIntent = (typeof SLOT_INTENTS)[number];
+/** What an unfinished ledger command still had when the app asked its follow-up question. */
+export type Pending = { intent: SlotIntent; customerName?: string; amountPaise?: number };
+type Lang = "HINDI" | "HINGLISH" | "ENGLISH";
+
+const CONFIRM_ONLY = /^(haan|haa|han|ha|ji haan|yes|ok|okay|theek hai|thik hai|nahi|no|हाँ|हां|नहीं|ठीक है)( ji| जी)?$/;
+const FILLER = new Set(["ji", "ka", "ki", "ke", "ko", "ne", "account", "khata", "khate", "mein", "me", "naam", "name", "hai", "likho", "add", "karo", "rupaye", "rupees", "rs", "जी", "का", "की", "के", "को", "ने", "खाते", "में", "है", "रुपये", "रुपए"]);
+
+/** Which required detail a ledger command still lacks: the customer first, then the amount. */
+export function missingSlot(r: { intent: Intent; params: IntentParams }): "customer" | "amount" | null {
+  if (!(SLOT_INTENTS as readonly string[]).includes(r.intent)) return null;
+  if (!r.params.customerName) return "customer";
+  if (!r.params.amountPaise) return "amount";
+  return null;
+}
+
+/**
+ * Merges a short answer ("Rahul", "500 rupaye", "राहुल 500") into the pending command from the previous turn.
+ * Returns null when the new text is its own command (so it is handled normally) or adds nothing.
+ */
+export function fillSlots(text: string, pending: Pending, current: IntentResult | null): IntentResult | null {
+  const t = norm(text);
+  if (!t || CONFIRM_ONLY.test(t)) return null;
+  // A new, different command wins over the old question.
+  if (current && current.intent !== "UNKNOWN" && current.intent !== pending.intent && current.intent !== "GET_CUSTOMER_BALANCE") return null;
+  const amount = current?.params.amountPaise ?? amountOf(t);
+  let name = current?.params.customerName ?? nameOf(text);
+  if (!name) {
+    const bare = text.replace(/[₹\d०-९,.]+/g, " ").split(/\s+/).filter((w) => w && !FILLER.has(w.toLowerCase())).join(" ");
+    if (bare && bare.split(" ").length <= 2 && /^[\p{L}\p{M} ]+$/u.test(bare)) name = bare;
+  }
+  const params: IntentParams = { customerName: pending.customerName ?? name, amountPaise: pending.amountPaise ?? amount };
+  if (params.customerName === pending.customerName && params.amountPaise === pending.amountPaise) return null;
+  return { intent: pending.intent, params, confidence: 0.85, needsConfirmation: true, source: "keywords" };
+}
+
+const ASK: Record<"customer" | "amount", Record<SlotIntent, Record<Lang, (name: string) => string>>> = {
+  customer: {
+    ADD_CREDIT: { HINGLISH: () => "Kiske khate mein likhna hai?", HINDI: () => "किसके खाते में लिखना है?", ENGLISH: () => "Which customer's account should I add it to?" },
+    RECORD_REPAYMENT: { HINGLISH: () => "Kisne paise diye?", HINDI: () => "किसने पैसे दिए?", ENGLISH: () => "Which customer paid?" },
+  },
+  amount: {
+    ADD_CREDIT: { HINGLISH: (n) => `${n} ke khate mein kitne rupaye likhne hain?`, HINDI: (n) => `${n} के खाते में कितने रुपये लिखने हैं?`, ENGLISH: (n) => `How much should I add to ${n}'s account?` },
+    RECORD_REPAYMENT: { HINGLISH: (n) => `${n} ne kitne rupaye diye?`, HINDI: (n) => `${n} ने कितने रुपये दिए?`, ENGLISH: (n) => `How much did ${n} pay?` },
+  },
+};
+
+export const clarifyQuestion = (slot: "customer" | "amount", intent: SlotIntent, language: Lang, name = "") => ASK[slot][intent][language](name);
+
+const NOT_FOUND: Record<Lang, (n: string) => string> = {
+  HINGLISH: (n) => `"${n}" naam ka koi customer nahi mila. Customer ka naam dobara batayein?`,
+  HINDI: (n) => `"${n}" नाम का कोई ग्राहक नहीं मिला। ग्राहक का नाम फिर से बताइए?`,
+  ENGLISH: (n) => `I couldn't find a customer called "${n}". Which customer did you mean?`,
+};
+export const notFoundQuestion = (name: string, language: Lang) => NOT_FOUND[language](name);
+
+/* ---------- Fuzzy customer names ---------- */
+
+const levenshtein = (a: string, b: string) => {
+  const row = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    let prev = row[0];
+    row[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = row[j];
+      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = tmp;
+    }
+  }
+  return row[b.length];
+};
+
+/** Collapses common speech-to-text spelling variants (aa/a, ee/i, sh/s, w/v, doubled letters). */
+const phonetic = (s: string) =>
+  s.toLowerCase().normalize("NFKC").replace(/aa/g, "a").replace(/ee|ii/g, "i").replace(/oo|uu/g, "u").replace(/sh/g, "s").replace(/w/g, "v").replace(/ph/g, "f").replace(/(.)\1+/g, "$1").replace(/[^\p{L}\p{M} ]/gu, "").trim();
+
+/**
+ * 0..1 similarity between a heard name and a stored one. Each heard word is compared with the closest word of the
+ * stored name, so "Rahul" matches "Rahul Sharma" and "Raahul" / "Rahool" still match "Rahul".
+ */
+export function nameSimilarity(heard: string, stored: string): number {
+  const h = phonetic(heard).split(" ").filter(Boolean);
+  const s = phonetic(stored).split(" ").filter(Boolean);
+  if (!h.length || !s.length) return 0;
+  const scores = h.map((w) => Math.max(...s.map((x) => 1 - levenshtein(w, x) / Math.max(w.length, x.length))));
+  return scores.reduce((a, b) => a + b, 0) / scores.length;
+}
+
+/** Best fuzzy matches above `min`, closest first. */
+export function fuzzyCustomers<T extends { name: string }>(heard: string, list: T[], min = 0.75, take = 3): T[] {
+  return list
+    .map((c) => ({ c, score: nameSimilarity(heard, c.name) }))
+    .filter((x) => x.score >= min)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, take)
+    .map((x) => x.c);
+}

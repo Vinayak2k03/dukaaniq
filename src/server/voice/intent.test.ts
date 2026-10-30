@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { matchIntent } from "./intent";
+import { clarifyQuestion, fillSlots, fuzzyCustomers, matchIntent, missingSlot, nameSimilarity, type Pending } from "./intent";
 
 const intentOf = (t: string) => matchIntent(t)?.intent ?? null;
 
@@ -43,4 +43,44 @@ test("writes and approvals need confirmation; a bare 'haan' is only CONFIRM, nev
 test("unmatched text returns null so the LLM fallback can try", () => {
   assert.equal(matchIntent("mausam kaisa hai"), null);
   assert.equal(matchIntent("   "), null);
+});
+
+test("ledger commands report the missing detail, customer first", () => {
+  assert.equal(missingSlot(matchIntent("Rahul ka udhaar likho")!), "amount");
+  assert.equal(missingSlot(matchIntent("500 rupaye udhaar likho")!), "customer");
+  assert.equal(missingSlot(matchIntent("Rahul ka 500 rupaye udhaar add karo")!), null);
+  assert.equal(missingSlot(matchIntent("koi tips do")!), null);
+  assert.equal(clarifyQuestion("amount", "ADD_CREDIT", "HINGLISH", "Rahul"), "Rahul ke khate mein kitne rupaye likhne hain?");
+  assert.equal(clarifyQuestion("customer", "RECORD_REPAYMENT", "HINDI"), "किसने पैसे दिए?");
+});
+
+test("a short reply completes the pending command", () => {
+  const needAmount: Pending = { intent: "ADD_CREDIT", customerName: "Rahul" };
+  const needName: Pending = { intent: "RECORD_REPAYMENT", amountPaise: 30_000 };
+  const fill = (t: string, p: Pending) => fillSlots(t, p, matchIntent(t));
+  assert.deepEqual(fill("500 rupaye", needAmount)?.params, { customerName: "Rahul", amountPaise: 50_000 });
+  assert.deepEqual(fill("५००", needAmount)?.params, { customerName: "Rahul", amountPaise: 50_000 });
+  assert.deepEqual(fill("Rahul", needName)?.params, { customerName: "Rahul", amountPaise: 30_000 });
+  assert.deepEqual(fill("Ramesh ji", needName)?.params, { customerName: "Ramesh", amountPaise: 30_000 });
+  assert.deepEqual(fill("राकेश", needName)?.params, { customerName: "राकेश", amountPaise: 30_000 });
+  assert.equal(fill("Rahul", needName)?.intent, "RECORD_REPAYMENT");
+  assert.equal(fill("Rahul", needName)?.needsConfirmation, true);
+  // A confirmation or a different command never fills the old question.
+  assert.equal(fill("haan", needAmount), null);
+  assert.equal(fill("koi tips do", needAmount), null);
+  assert.equal(fill("aaj ki sales kitni hui", needAmount), null);
+});
+
+test("fuzzy names tolerate speech-recognition spellings", () => {
+  assert.ok(nameSimilarity("Raahul", "Rahul") >= 0.75);
+  assert.ok(nameSimilarity("Rahool", "Rahul Sharma") >= 0.75);
+  assert.ok(nameSimilarity("Suresh", "Rahul") < 0.75);
+  const list = [{ name: "Rahul Sharma" }, { name: "Ramesh Gupta" }, { name: "Sunita Devi" }];
+  assert.deepEqual(fuzzyCustomers("Rahool", list), [{ name: "Rahul Sharma" }]);
+  assert.deepEqual(fuzzyCustomers("Sunitha", list), [{ name: "Sunita Devi" }]);
+  assert.deepEqual(fuzzyCustomers("Mohan", list), []);
+});
+
+test("Devanagari names keep their vowel signs", () => {
+  assert.equal(matchIntent("राहुल का ५०० रुपये उधार लिखो")?.params.customerName, "राहुल");
 });

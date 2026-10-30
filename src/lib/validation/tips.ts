@@ -26,6 +26,7 @@ export const rejectApiSchema = z
 export const VOICE_LANGUAGES = ["HINDI", "HINGLISH", "ENGLISH"] as const;
 export type VoiceLanguage = (typeof VOICE_LANGUAGES)[number];
 /** Up to the last 3 exchanges, so follow-up questions ("aur pichle hafte?") keep their context. */
-const voiceTurn = z.object({ user: z.string().trim().max(300), assistant: z.string().trim().max(600) });
+const voicePending = z.object({ intent: z.enum(["ADD_CREDIT", "RECORD_REPAYMENT"]), customerName: z.string().trim().min(1).max(60).optional(), amountPaise: z.number().int().positive().max(100_000_000).optional() });
+const voiceTurn = z.object({ user: z.string().trim().max(300), assistant: z.string().trim().max(600), pending: voicePending.optional() });
 export const voiceIntentSchema = z.object({ text: z.string().trim().min(1).max(300), language: z.enum(VOICE_LANGUAGES).default("HINGLISH"), sessionId: id.optional(), history: z.array(voiceTurn).max(3).default([]) });
 export const speakSchema = z.object({ text: z.string().trim().min(1).max(500), language: z.enum(VOICE_LANGUAGES).default("HINGLISH") });
