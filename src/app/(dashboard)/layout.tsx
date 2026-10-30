@@ -3,6 +3,7 @@ import { getCurrentMembership, listMemberships } from "@/server/merchant/access"
 import { categoryLabel } from "@/lib/validation/merchant";
 import { Sidebar } from "@/components/dashboard/sidebar";
 import { DashboardHeader } from "@/components/dashboard/header";
+import { getMerchantNotifications } from "@/server/notifications/service";
 
 export default async function DashboardLayout({ children }: LayoutProps<"/">) {
   const session = await requireSession();
@@ -10,6 +11,7 @@ export default async function DashboardLayout({ children }: LayoutProps<"/">) {
     getCurrentMembership(session.user.id),
     listMemberships(session.user.id),
   ]);
+  const notifications = membership ? await getMerchantNotifications(membership.merchantId) : { items: [], unreadCount: 0 };
 
   return (
     <div className="min-h-screen bg-[#F8F9FB] text-[#171A23]">
@@ -25,6 +27,7 @@ export default async function DashboardLayout({ children }: LayoutProps<"/">) {
           sessionUser={{ name: session.user.name, email: session.user.email }}
           currentMembership={membership}
           memberships={memberships}
+          notifications={notifications}
         />
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
           {children}

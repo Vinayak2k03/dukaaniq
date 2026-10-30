@@ -35,37 +35,31 @@ export async function answerInfoIntent(r: IntentResponse, referenceDate: string)
       if (!r.params.customerName) return "Which customer? Please say or type the customer's name.";
       if (matches.length === 0) return `No customer named "${r.params.customerName}" was found.`;
 
-      if (r.intent === "ADD_CREDIT") {
-        const amountPaise = r.params.amountPaise ?? 0;
+      if (r.intent === "ADD_CREDIT" || r.intent === "RECORD_REPAYMENT" || r.intent === "REQUEST_REMINDER") {
+        const kind = r.intent;
+        const amountPaise = kind === "REQUEST_REMINDER" ? 0 : (r.params.amountPaise ?? 0);
         const amountStr = amountPaise > 0 ? rupees(amountPaise) : "";
+        const verb = {
+          ADD_CREDIT: (name: string) => `Add ${amountStr || "credit"} to ${name}`,
+          RECORD_REPAYMENT: (name: string) => `Record ${amountStr || "repayment"} from ${name}`,
+          REQUEST_REMINDER: (name: string) => `Prepare reminder for ${name}`,
+        }[kind];
+        const goal = { ADD_CREDIT: `add ${amountStr || "credit"} to`, RECORD_REPAYMENT: `record ${amountStr || "a repayment"} for`, REQUEST_REMINDER: "prepare a payment reminder for" }[kind];
+        const actions = matches.map((m) => ({
+          label: verb(m.name),
+          kind,
+          customerId: m.id,
+          customerName: m.name,
+          phone: m.phone,
+          amountPaise,
+        }));
         if (matches.length > 1) {
           const list = matches.map((m) => `${m.name} (${m.phone ?? m.customerRef ?? "No phone"})`).join(", ");
-          return {
-            text: `Found ${matches.length} customers named "${r.params.customerName}" (${list}). Which account would you like to add ${amountStr || "credit"} to?`,
-            actions: matches.map((m) => ({
-              label: `Add ${amountStr || "credit"} to ${m.name} (${m.phone ? m.phone.slice(-4) : m.customerRef ?? ""})`,
-              kind: "ADD_CREDIT",
-              customerId: m.id,
-              customerName: m.name,
-              phone: m.phone,
-              amountPaise,
-            })),
-          };
+          return { text: `Found ${matches.length} customers named "${r.params.customerName}" (${list}). Which account would you like to ${goal}?`, actions };
         }
         const single = matches[0];
-        return {
-          text: `Ready to record ${amountStr || "credit"} for ${single.name} (${single.phone ?? single.customerRef ?? "No phone"}). Click below to confirm:`,
-          actions: [
-            {
-              label: `Add ${amountStr || "credit"} to ${single.name}`,
-              kind: "ADD_CREDIT",
-              customerId: single.id,
-              customerName: single.name,
-              phone: single.phone,
-              amountPaise,
-            },
-          ],
-        };
+        const note = kind === "REQUEST_REMINDER" ? " The reminder is only a proposal: you approve it in Action Centre before anything is sent." : "";
+        return { text: `Ready to ${goal} ${single.name} (${single.phone ?? single.customerRef ?? "No phone"}). Click below to confirm.${note}`, actions };
       }
 
       if (matches.length > 1) {

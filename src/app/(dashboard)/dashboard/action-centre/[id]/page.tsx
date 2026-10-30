@@ -7,15 +7,16 @@ import { env } from "@/lib/env";
 import { referenceDateFor } from "@/server/analytics/range";
 import { Panel } from "@/components/dashboard/panel";
 import { Badge } from "@/components/ui/badge";
-import { formatDateTimeIST, formatLocalDate } from "@/lib/money";
+import { formatDateTimeIST, formatLocalDate, formatPaise } from "@/lib/money";
 import { DECLINE_REASONS } from "@/lib/validation/recommendation";
 import { requireSession } from "@/server/auth/session";
 import { getCurrentMembership } from "@/server/merchant/access";
 import { TYPE_LABEL } from "@/server/recommendations/labels";
-import { getRecommendationDetail } from "@/server/recommendations/service";
+import { getRecommendationDetail, listOutcomes } from "@/server/recommendations/service";
+import { summarizeOutcomes } from "@/server/recommendations/outcome-math";
 import { STATUS_LABEL, STATUS_STYLE } from "@/server/recommendations/state";
 import { renderForCustomer } from "@/server/recommendations/text";
-import { AlternativeForm, ApproveForm, ExecuteForm, RejectForm } from "../decision-forms";
+import { AlternativeForm, ApproveForm, ExecuteForm, OutcomeForm, RejectForm } from "../decision-forms";
 import { VoiceApprove } from "./voice-approve";
 import { WhatsAppSendList } from "../whatsapp-send-list";
 import { whatsappLink } from "@/lib/whatsapp";
@@ -32,9 +33,18 @@ const EVENT_LABEL: Record<string, string> = {
   EXECUTION_REQUESTED: "Action queued",
   SIMULATED_ACTION_RECORDED: "Simulated demo action recorded",
   PROVIDER_RESPONSE: "Opened in WhatsApp by owner",
+  OUTCOME_RECORDED: "Outcome recorded",
 };
 
 const LANGUAGE_LABEL = { HINDI: "Hindi", HINGLISH: "Hinglish", ENGLISH: "English" } as const;
+const EXECUTED = ["SIMULATED", "SENT", "DELIVERED", "READ"];
+const VERDICT = {
+  "no-data": { text: "No outcome recorded yet.", variant: "neutral" },
+  "no-estimate": { text: "No scenario estimate to compare against.", variant: "neutral" },
+  below: { text: "Below the estimated range so far", variant: "warning" },
+  within: { text: "Within the estimated range", variant: "success" },
+  above: { text: "Above the estimated range", variant: "success" },
+} as const;
 const asRecord = (v: unknown) => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
 
 export default async function RecommendationDetailPage({
@@ -51,6 +61,10 @@ export default async function RecommendationDetailPage({
   if (!detail) notFound();
 
   const { rec, version, events } = detail;
+  const executed = EXECUTED.includes(rec.status);
+  const outcomes = executed ? await listOutcomes(membership.merchant.id, version.id) : [];
+  const measured = summarizeOutcomes(outcomes, version.audience.length, version.economics);
+  const outcomesSimulated = membership.merchant.isDemo || outcomes.some((o) => o.isSimulated);
   const isOwner = membership.role === "OWNER";
   const sample = version.audience[0]?.customer.displayName ?? "Customer";
   const [why, whatIf] = version.explanation.split("\n\n");
@@ -330,6 +344,70 @@ export default async function RecommendationDetailPage({
           </p>
         )}
       </Panel>
+
+      {/* Outcome verification: measured vs estimated (PRD 11.2, 15, 18) */}
+      {executed && (
+        <Panel
+          title="Measured Outcome vs Estimate"
+          subtitle="Recorded results compared with the scenario range shown before approval"
+          badge={<Badge variant={outcomesSimulated ? "warning" : "success"} size="sm">{outcomesSimulated ? "Simulated" : "Verified"}</Badge>}
+        >
+          <div className="grid gap-4 md:grid-cols-2 text-xs">
+            <div className="rounded-lg border border-[#E2E4E9] bg-[#FAFBFD] p-3.5">
+              <h4 className="mb-2 font-semibold text-[#171A23]">Estimated (before approval)</h4>
+              {measured.estimate ? (
+                <dl className="space-y-1">
+                  <div className="flex justify-between"><dt className="text-[#737B8C]">Customers converting</dt><dd className="tabular-nums font-semibold">{measured.estimate.lowRedemptions} to {measured.estimate.highRedemptions}</dd></div>
+                  <div className="flex justify-between"><dt className="text-[#737B8C]">Extra sales</dt><dd className="tabular-nums font-semibold">{formatPaise(measured.estimate.lowSalesPaise)} to {formatPaise(measured.estimate.highSalesPaise)}</dd></div>
+                </dl>
+              ) : (
+                <p className="text-[#737B8C]">This recommendation had no scenario range.</p>
+              )}
+            </div>
+            <div className="rounded-lg border border-emerald-100 bg-emerald-50/40 p-3.5">
+              <h4 className="mb-2 font-semibold text-emerald-950">Measured (recorded)</h4>
+              <dl className="space-y-1">
+                <div className="flex justify-between"><dt className="text-[#737B8C]">Customers converting</dt><dd className="tabular-nums font-semibold">{measured.customersConverted} of {measured.customersReached} ({measured.conversionPct}%)</dd></div>
+                <div className="flex justify-between"><dt className="text-[#737B8C]">Offers redeemed</dt><dd className="tabular-nums font-semibold">{measured.redemptions}</dd></div>
+                <div className="flex justify-between"><dt className="text-[#737B8C]">Return visits</dt><dd className="tabular-nums font-semibold">{measured.returns}</dd></div>
+                <div className="flex justify-between"><dt className="text-[#737B8C]">Recorded sales</dt><dd className="tabular-nums font-semibold">{formatPaise(measured.measuredSalesPaise)}</dd></div>
+              </dl>
+            </div>
+          </div>
+          <div className="mt-3">
+            <Badge variant={VERDICT[measured.verdict].variant} size="sm">{VERDICT[measured.verdict].text}</Badge>
+          </div>
+
+          {outcomes.length > 0 && (
+            <ul className="mt-4 divide-y divide-[#F0F2F5] text-xs">
+              {outcomes.map((o) => (
+                <li key={o.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                  <span>
+                    <strong className="font-semibold">{o.customer?.displayName ?? "Customer"}</strong>{" "}
+                    {o.type === "OFFER_REDEEMED" ? "redeemed the offer" : "came back to buy"}
+                    {o.amountPaise > 0 && <> &middot; {formatPaise(o.amountPaise)}</>}
+                    {o.isSimulated && <span className="ml-1.5 text-amber-700">(simulated)</span>}
+                  </span>
+                  <span className="font-mono text-[11px] text-[#737B8C]">{formatDateTimeIST(o.occurredAt)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {isOwner && (
+            <div className="mt-4 border-t border-[#F0F2F5] pt-4">
+              {membership.merchant.isDemo && (
+                <p className="mb-2 text-[11px] text-amber-800">Demo store: outcomes you record are stored as simulated and never count as real results.</p>
+              )}
+              <OutcomeForm
+                recommendationId={rec.id}
+                demo={outcomesSimulated}
+                customers={version.audience.map((a) => ({ id: a.customer.id, name: a.customer.displayName }))}
+              />
+            </div>
+          )}
+        </Panel>
+      )}
 
       {/* Immutable Audit Log History */}
       <Panel

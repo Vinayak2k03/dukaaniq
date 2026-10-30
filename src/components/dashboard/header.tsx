@@ -5,6 +5,8 @@ import { usePathname } from "next/navigation";
 import { signOutAction } from "@/app/(auth)/actions";
 import { switchMerchantAction } from "@/server/merchant/actions";
 import { ChevronRight, LogOut, Shield } from "@/components/ui/icons";
+import type { NotificationItem } from "@/server/notifications/service";
+import { NotificationBell } from "./notification-bell";
 
 type Membership = {
   merchantId: string;
@@ -19,6 +21,7 @@ const routeTitles: Record<string, string> = {
   "/dashboard/sales": "Sales Analytics",
   "/dashboard/customers": "Customer Intelligence",
   "/dashboard/action-centre": "AI Recommendation Centre",
+  "/dashboard/grow-profit": "Growth Tips",
   "/dashboard/transactions": "Financial Transactions",
   "/dashboard/campaigns": "Coupons & Campaigns",
   "/dashboard/udhaar": "Udhaar & Credit Ledger",
@@ -31,10 +34,12 @@ export function DashboardHeader({
   sessionUser,
   currentMembership,
   memberships,
+  notifications = { items: [], unreadCount: 0 },
 }: {
   sessionUser: { name: string; email: string };
   currentMembership: Membership | null;
   memberships: Membership[];
+  notifications?: { items: NotificationItem[]; unreadCount: number };
 }) {
   const pathname = usePathname();
 
@@ -89,6 +94,10 @@ export function DashboardHeader({
             <span className="h-1.5 w-1.5 rounded-full bg-[#4338CA]" />
             {currentMembership?.merchant.shopName ?? "Active Store"}
           </span>
+        )}
+
+        {currentMembership && (
+          <NotificationBell key={currentMembership.merchantId} items={notifications.items} unreadCount={notifications.unreadCount} />
         )}
 
         {/* User Pill & Logout */}

@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { db } from "@/lib/db";
-import { formatLocalDate, formatPaise } from "@/lib/money";
+import { formatDateTimeIST, formatPaise } from "@/lib/money";
+import { TYPE_LABEL } from "@/server/recommendations/labels";
+import { STATUS_LABEL } from "@/server/recommendations/state";
 import { requireSession } from "@/server/auth/session";
 import { getCurrentMembership } from "@/server/merchant/access";
 import { Badge } from "@/components/ui/badge";
@@ -66,6 +68,45 @@ export default async function CampaignsPage() {
 
   campaigns.sort((a, b) => b.netRevenuePaise - a.netRevenuePaise);
 
+  // Codes DukaanIQ created on approval. They show up here immediately, before any sale uses them.
+  const issued = await db.recommendationVersion.findMany({
+    where: { recommendation: { merchantId: merchant.id }, couponCodes: { some: {} } },
+    orderBy: { createdAt: "desc" },
+    take: 50,
+    select: {
+      id: true,
+      title: true,
+      offerTerms: true,
+      recommendation: { select: { id: true, type: true, status: true } },
+      couponCodes: { select: { code: true, customerId: true, createdAt: true }, orderBy: { code: "asc" } },
+      outcomeEvents: { where: { type: "OFFER_REDEEMED" }, select: { amount: true } },
+    },
+  });
+  const issuedCodes = issued.flatMap((v) => v.couponCodes.map((c) => c.code));
+  const issuedSales = issuedCodes.length
+    ? await db.sale.groupBy({ by: ["couponCode"], _count: { id: true }, _sum: { netAmount: true }, where: { merchantId: merchant.id, couponCode: { in: issuedCodes } } })
+    : [];
+  const salesByCode = new Map(issuedSales.map((s) => [s.couponCode, { count: s._count.id, netPaise: s._sum.netAmount?.mul(100).toDecimalPlaces(0).toNumber() ?? 0 }]));
+  const issuedCampaigns = issued.map((v) => {
+    const terms = (v.offerTerms ?? {}) as { codeMode?: string; codePrefix?: string };
+    const pos = v.couponCodes.map((c) => salesByCode.get(c.code)).filter((x) => x !== undefined);
+    const outcomePaise = v.outcomeEvents.reduce((t, o) => t + (o.amount ? Math.round(Number(o.amount) * 100) : 0), 0);
+    return {
+      versionId: v.id,
+      recommendationId: v.recommendation.id,
+      title: v.title,
+      type: TYPE_LABEL[v.recommendation.type] ?? v.recommendation.type,
+      status: STATUS_LABEL[v.recommendation.status],
+      shared: terms.codeMode === "SHARED",
+      prefix: terms.codePrefix ?? v.couponCodes[0]?.code.split("-")[0] ?? "",
+      codes: v.couponCodes.map((c) => c.code),
+      issuedAt: v.couponCodes[0]?.createdAt ?? null,
+      posRedemptions: pos.reduce((t, x) => t + x.count, 0),
+      recordedRedemptions: v.outcomeEvents.length,
+      salesPaise: pos.reduce((t, x) => t + x.netPaise, 0) + outcomePaise,
+    };
+  });
+
   const totalRedemptions = campaigns.reduce((t, c) => t + c.redemptions, 0);
   const totalDiscountPaise = campaigns.reduce((t, c) => t + c.discountPaise, 0);
   const totalDrivenRevenuePaise = campaigns.reduce((t, c) => t + c.netRevenuePaise, 0);
@@ -88,7 +129,7 @@ export default async function CampaignsPage() {
 
         <div className="flex items-center gap-2">
           <Badge variant="brand" size="sm">
-            {campaigns.length} Active Campaigns
+            {campaigns.length + issuedCampaigns.length} Active Campaigns
           </Badge>
         </div>
       </div>
@@ -120,6 +161,58 @@ export default async function CampaignsPage() {
           icon={<Sparkles size={16} />}
         />
       </div>
+
+      {/* Codes issued by DukaanIQ on approval */}
+      <Panel
+        title="DukaanIQ Campaign Codes"
+        subtitle="Codes created when you approved a recommendation. They appear here before anyone redeems them."
+        badge={<Badge variant="brand" size="sm">{issuedCodes.length} codes</Badge>}
+      >
+        {issuedCampaigns.length === 0 ? (
+          <p className="text-xs text-[#737B8C]">No codes yet. Approve a coupon recommendation in the Action Centre and its codes will show here.</p>
+        ) : (
+          <ul className="divide-y divide-[#F0F2F5] text-xs">
+            {issuedCampaigns.map((c) => (
+              <li key={c.versionId} className="flex flex-wrap items-start justify-between gap-3 py-3">
+                <div className="min-w-0 space-y-1.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-md border border-indigo-200/60 bg-indigo-50 px-2 py-0.5 font-mono font-bold text-[#4338CA]">
+                      {c.shared ? c.codes[0] : `${c.prefix}-*`}
+                    </span>
+                    <Badge variant="neutral" size="sm">{c.type}</Badge>
+                    <Badge variant={c.posRedemptions + c.recordedRedemptions > 0 ? "success" : "warning"} size="sm" withDot>
+                      {c.posRedemptions + c.recordedRedemptions > 0 ? "Redeeming" : "Awaiting first redemption"}
+                    </Badge>
+                  </div>
+                  <Link href={`/dashboard/action-centre/${c.recommendationId}`} className="block font-semibold text-[#171A23] hover:text-[#4338CA] hover:underline">
+                    {c.title}
+                  </Link>
+                  <p className="text-[11px] text-[#737B8C]">
+                    {c.shared ? "One shared code" : `${c.codes.length} unique customer codes`} &middot; {c.status}
+                    {c.issuedAt && <> &middot; Issued {formatDateTimeIST(c.issuedAt)}</>}
+                  </p>
+                  {!c.shared && (
+                    <details className="text-[11px] text-[#525866]">
+                      <summary className="cursor-pointer">Show codes</summary>
+                      <p className="mt-1 font-mono break-all">{c.codes.join(", ")}</p>
+                    </details>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-x-4 text-right">
+                  <div>
+                    <p className="text-[11px] text-[#737B8C]">Redemptions</p>
+                    <p className="font-mono text-sm font-bold tabular-nums">{c.posRedemptions + c.recordedRedemptions}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] text-[#737B8C]">Sales</p>
+                    <p className="font-mono text-sm font-bold tabular-nums text-emerald-700">{formatPaise(c.salesPaise)}</p>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Panel>
 
       {/* Campaign Cards Grid */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">

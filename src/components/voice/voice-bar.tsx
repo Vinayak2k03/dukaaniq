@@ -15,7 +15,7 @@ export type IntentResponse = {
 
 export type VoiceAction = {
   label: string;
-  kind: "ADD_CREDIT";
+  kind: "ADD_CREDIT" | "RECORD_REPAYMENT" | "REQUEST_REMINDER";
   customerId: string;
   customerName: string;
   phone?: string | null;
@@ -30,6 +30,8 @@ type Props = {
   /** Handles an interpreted command and returns the reply to show (and speak, when the command was spoken). */
   onCommand: (r: IntentResponse, text: string) => Promise<VoiceBarResult>;
 };
+
+const newKey = () => `voice:${Date.now()}:${Math.random().toString(36).slice(2, 9)}`;
 
 const LANGS: [VoiceLanguage, string][] = [["HINGLISH", "Hinglish"], ["HINDI", "हिंदी"], ["ENGLISH", "English"]];
 
@@ -46,6 +48,7 @@ export function VoiceBar({ sarvam, placeholder, onCommand }: Props) {
   const [reply, setReply] = useState<string | null>(null);
   const [actions, setActions] = useState<VoiceAction[]>([]);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+  const [actionLink, setActionLink] = useState<{ href: string; label: string } | null>(null);
 
   async function record() {
     if (voice.listening) return voice.stop();
@@ -56,39 +59,49 @@ export function VoiceBar({ sarvam, placeholder, onCommand }: Props) {
     }
   }
 
+  const finish = (ok: boolean, msg: string) => {
+    setActionSuccess(ok ? msg : `Failed: ${msg}`);
+    if (ok) {
+      setActions([]);
+      if (spoken) void voice.speak(msg, language);
+    }
+  };
+
+  /** Runs only after the owner taps a button: voice never writes anything by itself. */
   async function executeAction(act: VoiceAction) {
-    if (act.kind === "ADD_CREDIT") {
-      if (!act.amountPaise || act.amountPaise <= 0) {
-        window.location.href = `/dashboard/udhaar/${act.customerId}`;
-        return;
-      }
-      setBusy(true);
-      setActionSuccess(null);
-      try {
+    const ledger = act.kind === "ADD_CREDIT" || act.kind === "RECORD_REPAYMENT";
+    if (ledger && (!act.amountPaise || act.amountPaise <= 0)) {
+      window.location.assign(`/dashboard/udhaar/${act.customerId}`);
+      return;
+    }
+    setBusy(true);
+    setActionSuccess(null);
+    setActionLink(null);
+    const amount = `₹${(act.amountPaise / 100).toLocaleString("en-IN")}`;
+    try {
+      if (ledger) {
         const res = await fetch("/api/credit/entries", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            customerId: act.customerId,
-            type: "CREDIT_GIVEN",
-            amount: act.amountPaise / 100,
-            idempotencyKey: `voice:${Date.now()}:${Math.random().toString(36).slice(2, 9)}`,
-          }),
+          body: JSON.stringify({ customerId: act.customerId, type: act.kind === "ADD_CREDIT" ? "CREDIT_GIVEN" : "REPAYMENT_RECEIVED", amount: act.amountPaise / 100, idempotencyKey: newKey() }),
         });
-        const data = (await res.json()) as { error?: string; entryId?: string };
+        const data = (await res.json()) as { error?: string };
         if (res.ok) {
-          const successMsg = `Added ₹${(act.amountPaise / 100).toLocaleString("en-IN")} credit to ${act.customerName}'s account successfully.`;
-          setActionSuccess(successMsg);
-          setActions([]);
-          if (spoken) void voice.speak(successMsg, language);
-        } else {
-          setActionSuccess(`Failed: ${data.error ?? "Could not add credit"}`);
-        }
-      } catch {
-        setActionSuccess("Network error. Please try again.");
-      } finally {
-        setBusy(false);
+          finish(true, act.kind === "ADD_CREDIT" ? `Added ${amount} credit to ${act.customerName}'s account.` : `Recorded ${amount} repayment from ${act.customerName}.`);
+          setActionLink({ href: `/dashboard/udhaar/${act.customerId}`, label: "Open ledger" });
+        } else finish(false, data.error ?? "Could not save this entry.");
+      } else {
+        const res = await fetch(`/api/credit/customers/${encodeURIComponent(act.customerId)}/reminder`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+        const data = (await res.json()) as { error?: string; recommendationId?: string; duplicate?: boolean };
+        if (res.ok && data.recommendationId) {
+          finish(true, data.duplicate ? `A reminder for ${act.customerName} is already waiting for approval.` : `Reminder for ${act.customerName} prepared. Approve it before it is sent.`);
+          setActionLink({ href: `/dashboard/action-centre/${data.recommendationId}`, label: "Review reminder" });
+        } else finish(false, data.error ?? "Could not prepare the reminder.");
       }
+    } catch {
+      setActionSuccess("Network error. Please try again.");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -100,6 +113,7 @@ export function VoiceBar({ sarvam, placeholder, onCommand }: Props) {
     setReply(null);
     setActions([]);
     setActionSuccess(null);
+    setActionLink(null);
     try {
       const res = await fetch("/api/voice/intent", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: t, language }) });
       const data = (await res.json()) as IntentResponse & { error?: string };
@@ -157,7 +171,9 @@ export function VoiceBar({ sarvam, placeholder, onCommand }: Props) {
 
           {actions.length > 0 && (
             <div className="mt-2 flex flex-col gap-1.5 border-t border-[#E2E4E9] pt-2">
-              <p className="font-semibold text-[#525866]">Select customer to add credit:</p>
+              <p className="font-semibold text-[#525866]">
+                {actions[0].kind === "ADD_CREDIT" ? "Select customer to add credit:" : actions[0].kind === "RECORD_REPAYMENT" ? "Select customer to record repayment:" : "Select customer to prepare a reminder:"}
+              </p>
               <div className="flex flex-wrap gap-2">
                 {actions.map((act) => (
                   <button
@@ -167,7 +183,7 @@ export function VoiceBar({ sarvam, placeholder, onCommand }: Props) {
                     onClick={() => void executeAction(act)}
                     className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#4338CA] shadow-sm hover:border-indigo-400 hover:bg-indigo-50/50 disabled:opacity-50"
                   >
-                    <span>➕ {act.customerName}</span>
+                    <span>{act.label}</span>
                     <span className="font-normal text-[#525866]">({act.phone ? act.phone : "No phone"})</span>
                   </button>
                 ))}
@@ -176,8 +192,11 @@ export function VoiceBar({ sarvam, placeholder, onCommand }: Props) {
           )}
 
           {actionSuccess && (
-            <div className="mt-1 rounded-md bg-emerald-50 p-2 text-xs font-medium text-emerald-800">
+            <div className={`mt-1 rounded-md p-2 text-xs font-medium ${/^(Failed|Network)/.test(actionSuccess) ? "bg-rose-50 text-rose-800" : "bg-emerald-50 text-emerald-800"}`}>
               {actionSuccess}
+              {actionLink && (
+                <a href={actionLink.href} className="ml-2 font-semibold text-[#4338CA] hover:underline">{actionLink.label}</a>
+              )}
             </div>
           )}
         </div>

@@ -18,6 +18,7 @@ import {
   ChevronDown,
   X,
   Menu,
+  Lightbulb,
 } from "@/components/ui/icons";
 import { Badge } from "@/components/ui/badge";
 
@@ -46,6 +47,7 @@ const navigationGroups: NavGroup[] = [
       { href: "/dashboard/sales", label: "Sales Analytics", icon: TrendingUp },
       { href: "/dashboard/customers", label: "Customers", icon: Users },
       { href: "/dashboard/action-centre", label: "AI Recommendations", icon: Sparkles },
+      { href: "/dashboard/grow-profit", label: "Growth Tips", icon: Lightbulb },
     ],
   },
   {
