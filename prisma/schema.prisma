@@ -25,6 +25,11 @@ model User {
   accounts    Account[]
   memberships MerchantMember[]
 
+  creditEntries     CreditEntry[]
+  approvalDecisions ApprovalDecision[]
+  auditEvents       AuditEvent[]
+  actionLogs        ActionLog[]
+
   @@map("user")
 }
 
@@ -94,27 +99,143 @@ enum MemberRole {
   STAFF
 }
 
+enum PaymentMethod {
+  PAYTM
+  UPI
+  CASH
+  CARD
+  OTHER
+}
+
+// PRD 5.1: KPIs count PAID sales only. CREDIT = sold on udhaar (see CreditEntry).
+// Why a sale has discountAmount > 0 (workbook discount_reason).
+enum DiscountReason {
+  NONE
+  COUPON
+  MERCHANT_DISCOUNT
+}
+
+enum PaymentStatus {
+  PAID
+  CREDIT
+  PENDING
+}
+
 enum SaleStatus {
   COMPLETED
   CANCELLED
   REFUNDED
 }
 
-enum RecommendationType {
-  RECOVER_CUSTOMER
-  GROW_PROFIT
-  UDHAAR_REMINDER
+// PRD 8.2. Balance = CREDIT_GIVEN + ADJUSTMENT_INCREASE - REPAYMENT_RECEIVED - ADJUSTMENT_DECREASE.
+enum CreditEntryType {
+  CREDIT_GIVEN
+  REPAYMENT_RECEIVED
+  ADJUSTMENT_INCREASE
+  ADJUSTMENT_DECREASE
 }
 
+// PRD 6.1
+enum RecommendationType {
+  WINBACK
+  BUNDLE
+  SLOW_MOVING
+  PEAK_TIMING
+  CREDIT_REMINDER
+  LOYALTY
+}
+
+// PRD 7.2 state machine
 enum RecommendationStatus {
-  PENDING
-  ACCEPTED
-  DISMISSED
-  COMPLETED
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  EXECUTION_PENDING
+  SENT
+  SIMULATED
+  DELIVERED
+  READ
+  FAILED
+  CANCELLED
+}
+
+enum ApprovalDecisionType {
+  APPROVED
+  REJECTED
+}
+
+// PRD 7.3
+enum DeclineReason {
+  COST_TOO_HIGH
+  BENEFIT_UNCLEAR
+  WRONG_AUDIENCE
+  BAD_TIMING
+  OPERATIONAL_CONSTRAINT
+  DO_NOT_CONTACT
+  OTHER
+}
+
+enum MessageChannel {
+  WHATSAPP_MANUAL_LINK
+  WHATSAPP_API
+  SMS
+  EMAIL
+  IN_APP
 }
 
 enum ActionStatus {
   PENDING
+  SIMULATED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+// PRD 7.4 plus credit ledger events (PRD 14).
+enum AuditEventType {
+  RECOMMENDATION_CREATED
+  RECOMMENDATION_VIEWED
+  APPROVED
+  REJECTED
+  FEEDBACK_SUBMITTED
+  ALTERNATIVE_CREATED
+  EXECUTION_REQUESTED
+  PROVIDER_RESPONSE
+  DELIVERY_STATUS_UPDATED
+  SIMULATED_ACTION_RECORDED
+  OUTCOME_RECORDED
+  CREDIT_GIVEN
+  REPAYMENT_RECEIVED
+  CREDIT_ADJUSTED
+}
+
+enum PreferredLanguage {
+  HINDI
+  HINGLISH
+  ENGLISH
+}
+
+enum NotificationType {
+  NEW_INSIGHT
+  APPROVAL_PENDING
+  OVERDUE_CREDIT
+  EXECUTION_FAILED
+  OUTCOME_UPDATE
+}
+
+// PRD 11.2. Verified outcomes are stored separately from the estimate in RecommendationVersion.economics.
+enum OutcomeType {
+  OFFER_REDEEMED
+  CUSTOMER_RETURNED
+  REPAYMENT_RECORDED
+  MESSAGE_DELIVERED
+  MESSAGE_READ
+}
+
+enum ImportStatus {
+  RUNNING
   SUCCEEDED
   FAILED
 }
@@ -123,15 +244,27 @@ model Merchant {
   id               String           @id @default(cuid())
   shopName         String
   businessCategory BusinessCategory
+  city             String?
+  state            String?
+  isDemo           Boolean          @default(false)
+  timezone         String           @default("Asia/Kolkata")
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
 
-  members         MerchantMember[]
-  customers       Customer[]
-  products        Product[]
-  sales           Sale[]
-  recommendations Recommendation[]
-  actionLogs      ActionLog[]
+  members          MerchantMember[]
+  customers        Customer[]
+  products         Product[]
+  sales            Sale[]
+  creditEntries    CreditEntry[]
+  recommendations  Recommendation[]
+  approvals        ApprovalDecision[]
+  auditEvents      AuditEvent[]
+  actionLogs       ActionLog[]
+  creditPolicy     CreditPolicy?
+  importRuns       ImportRun[]
+  notifications    Notification[]
+  outboundMessages OutboundMessage[]
+  outcomeEvents    OutcomeEvent[]
 
   @@map("merchant")
 }
@@ -152,17 +285,29 @@ model MerchantMember {
   @@map("merchant_member")
 }
 
+// customerRef is the import key (workbook customer_id): unique per merchant, so re-seeding is idempotent.
 model Customer {
-  id          String   @id @default(cuid())
-  merchantId  String
-  displayName String
-  customerRef String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                String            @id @default(cuid())
+  merchantId        String
+  displayName       String
+  customerRef       String?
+  phone             String?
+  preferredLanguage PreferredLanguage @default(ENGLISH)
+  joinedAt          DateTime?
+  optedInAt         DateTime?
+  optedOutAt        DateTime?
+  isSynthetic       Boolean           @default(false)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
 
-  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
-  sales    Sale[]
+  merchant         Merchant                 @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  sales            Sale[]
+  creditEntries    CreditEntry[]
+  audienceEntries  RecommendationAudience[]
+  outboundMessages OutboundMessage[]
+  outcomeEvents    OutcomeEvent[]
 
+  @@unique([id, merchantId])
   @@unique([merchantId, customerRef])
   @@index([merchantId])
   @@map("customer")
@@ -171,7 +316,9 @@ model Customer {
 model Product {
   id           String   @id @default(cuid())
   merchantId   String
+  externalId   String?
   name         String
+  category     String?
   sellingPrice Decimal  @db.Decimal(12, 2)
   costPrice    Decimal  @db.Decimal(12, 2)
   createdAt    DateTime @default(now())
@@ -180,74 +327,339 @@ model Product {
   merchant  Merchant   @relation(fields: [merchantId], references: [id], onDelete: Cascade)
   saleItems SaleItem[]
 
+  @@unique([id, merchantId])
+  @@unique([merchantId, externalId])
   @@index([merchantId, name])
+  @@index([merchantId, category])
   @@map("product")
 }
 
+// netAmount = grossAmount - discountAmount. Sum sales totals from this table, never via a join to sale_item.
 model Sale {
-  id          String     @id @default(cuid())
-  merchantId  String
-  customerId  String?
-  saleDate    DateTime
-  status      SaleStatus @default(COMPLETED)
-  totalAmount Decimal    @db.Decimal(12, 2)
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  id                     String         @id @default(cuid())
+  merchantId             String
+  externalId             String?
+  customerId             String?
+  saleDate               DateTime
+  status                 SaleStatus     @default(COMPLETED)
+  paymentMethod          PaymentMethod
+  paymentStatus          PaymentStatus
+  grossAmount            Decimal        @db.Decimal(12, 2)
+  discountAmount         Decimal        @default(0) @db.Decimal(12, 2)
+  netAmount              Decimal        @db.Decimal(12, 2)
+  discountReason         DiscountReason @default(NONE)
+  couponCode             String?
+  invoiceNumber          String?
+  paytmTransactionId     String?
+  transactionCompletedAt DateTime?
+  createdAt              DateTime       @default(now())
+  updatedAt              DateTime       @updatedAt
 
-  merchant Merchant   @relation(fields: [merchantId], references: [id], onDelete: Cascade)
-  customer Customer?  @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  items    SaleItem[]
+  merchant      Merchant       @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  customer      Customer?      @relation(fields: [customerId, merchantId], references: [id, merchantId], onDelete: NoAction)
+  items         SaleItem[]
+  outcomeEvents OutcomeEvent[]
 
+  @@unique([id, merchantId])
+  @@unique([merchantId, externalId])
+  @@unique([merchantId, invoiceNumber])
   @@index([merchantId, saleDate])
+  @@index([merchantId, customerId, saleDate])
+  @@index([merchantId, paymentStatus, saleDate])
   @@index([customerId])
   @@map("sale")
 }
 
+// lineTotal = quantity * unitSellingPrice - lineDiscount; lineCost = quantity * unitCostPrice.
 model SaleItem {
   id               String   @id @default(cuid())
+  merchantId       String
   saleId           String
+  externalId       String?
   productId        String
   quantity         Decimal  @db.Decimal(12, 3)
   unitSellingPrice Decimal  @db.Decimal(12, 2)
+  lineDiscount     Decimal  @default(0) @db.Decimal(12, 2)
+  lineTotal        Decimal  @db.Decimal(12, 2)
   unitCostPrice    Decimal  @db.Decimal(12, 2)
+  lineCost         Decimal  @db.Decimal(12, 2)
   createdAt        DateTime @default(now())
 
-  sale    Sale    @relation(fields: [saleId], references: [id], onDelete: Cascade)
-  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  sale    Sale    @relation(fields: [saleId, merchantId], references: [id, merchantId], onDelete: Cascade)
+  product Product @relation(fields: [productId, merchantId], references: [id, merchantId], onDelete: NoAction)
 
+  @@unique([saleId, externalId])
+  @@index([merchantId])
   @@index([saleId])
   @@index([productId])
   @@map("sale_item")
 }
 
+// Per-merchant udhaar rules (workbook Credit_Policies). Overdue = dueDate + gracePeriodDays < today.
+// No automatic penalty is applied by the app; penalty fields are stored for future policy decisions only.
+model CreditPolicy {
+  id              String   @id @default(cuid())
+  merchantId      String   @unique
+  name            String
+  gracePeriodDays Int      @default(0)
+  lateFeeAmount   Decimal  @default(0) @db.Decimal(12, 2)
+  penaltyEnabled  Boolean  @default(false)
+  note            String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@map("credit_policy")
+}
+
+// Append-only credit ledger (PRD 8). Corrections are new ADJUSTMENT_* rows; update/delete is blocked by trigger.
+model CreditEntry {
+  id              String          @id @default(cuid())
+  merchantId      String
+  customerId      String
+  type            CreditEntryType
+  amount          Decimal         @db.Decimal(12, 2)
+  entryDate       DateTime
+  dueDate         DateTime?
+  paymentMethod   PaymentMethod?
+  note            String?
+  reason          String?
+  reversesEntryId String?
+  actorId         String
+  idempotencyKey  String
+  createdAt       DateTime        @default(now())
+
+  merchant      Merchant      @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  customer      Customer      @relation(fields: [customerId, merchantId], references: [id, merchantId], onDelete: NoAction)
+  actor         User          @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  reversesEntry CreditEntry?  @relation("CreditEntryReversal", fields: [reversesEntryId], references: [id], onDelete: Restrict)
+  reversedBy    CreditEntry[] @relation("CreditEntryReversal")
+
+  @@unique([merchantId, idempotencyKey])
+  @@index([merchantId, customerId, entryDate])
+  @@index([merchantId, dueDate])
+  @@map("credit_entry")
+}
+
 model Recommendation {
-  id          String               @id @default(cuid())
-  merchantId  String
-  type        RecommendationType
-  status      RecommendationStatus @default(PENDING)
-  explanation String               @db.Text
-  createdAt   DateTime             @default(now())
-  updatedAt   DateTime             @updatedAt
+  id              String               @id @default(cuid())
+  merchantId      String
+  type            RecommendationType
+  status          RecommendationStatus @default(DRAFT)
+  currentVersion  Int                  @default(1)
+  alternativeOfId String?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
 
-  merchant   Merchant    @relation(fields: [merchantId], references: [id], onDelete: Cascade)
-  actionLogs ActionLog[]
+  merchant      Merchant                @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  alternativeOf Recommendation?         @relation("RecommendationAlternative", fields: [alternativeOfId], references: [id], onDelete: SetNull)
+  alternatives  Recommendation[]        @relation("RecommendationAlternative")
+  versions      RecommendationVersion[]
+  approvals     ApprovalDecision[]
 
+  @@unique([id, merchantId])
   @@index([merchantId, status])
   @@map("recommendation")
 }
 
-model ActionLog {
-  id               String       @id @default(cuid())
-  merchantId       String
-  recommendationId String?
-  actionType       String
-  status           ActionStatus @default(PENDING)
-  createdAt        DateTime     @default(now())
+// Immutable once PENDING_APPROVAL: approval and execution always reference one exact version (PRD 7.2, 11.1).
+model RecommendationVersion {
+  id               String         @id @default(cuid())
+  recommendationId String
+  version          Int
+  title            String
+  explanation      String         @db.Text
+  evidence         Json
+  offerTerms       Json
+  economics        Json
+  message          String         @db.Text
+  language         String
+  channel          MessageChannel
+  createdAt        DateTime       @default(now())
 
-  merchant       Merchant        @relation(fields: [merchantId], references: [id], onDelete: Cascade)
-  recommendation Recommendation? @relation(fields: [recommendationId], references: [id], onDelete: SetNull)
+  recommendation Recommendation           @relation(fields: [recommendationId], references: [id], onDelete: Cascade)
+  audience       RecommendationAudience[]
+  approval       ApprovalDecision?
+  actionLogs     ActionLog[]
+  outcomeEvents  OutcomeEvent[]
+
+  @@unique([recommendationId, version])
+  @@map("recommendation_version")
+}
+
+// Audience snapshot for one version (PRD 6.2).
+model RecommendationAudience {
+  id                    String    @id @default(cuid())
+  versionId             String
+  customerId            String
+  lastPurchaseAt        DateTime?
+  daysSinceLastPurchase Int?
+  createdAt             DateTime  @default(now())
+
+  version  RecommendationVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  customer Customer              @relation(fields: [customerId], references: [id], onDelete: Restrict)
+
+  @@unique([versionId, customerId])
+  @@index([customerId])
+  @@map("recommendation_audience")
+}
+
+model ApprovalDecision {
+  id               String               @id @default(cuid())
+  merchantId       String
+  recommendationId String
+  versionId        String               @unique
+  decision         ApprovalDecisionType
+  declineReason    DeclineReason?
+  note             String?
+  actorId          String
+  decidedAt        DateTime             @default(now())
+
+  merchant       Merchant              @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  recommendation Recommendation        @relation(fields: [recommendationId, merchantId], references: [id, merchantId], onDelete: Cascade)
+  version        RecommendationVersion @relation(fields: [versionId], references: [id], onDelete: Restrict)
+  actor          User                  @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([merchantId, decidedAt])
+  @@index([recommendationId])
+  @@map("approval_decision")
+}
+
+// Append-only (PRD 7.4); update/delete is blocked by trigger. actorId is null for system events.
+model AuditEvent {
+  id            String         @id @default(cuid())
+  merchantId    String
+  actorId       String?
+  eventType     AuditEventType
+  entityType    String
+  entityId      String
+  entityVersion Int?
+  metadata      Json?
+  createdAt     DateTime       @default(now())
+
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  actor    User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
 
   @@index([merchantId, createdAt])
-  @@index([recommendationId])
+  @@index([entityType, entityId])
+  @@map("audit_event")
+}
+
+// An action always points at an approved recommendation version (enforced by trigger).
+// idempotencyKey prevents duplicate sends on retry. simulated=true means nothing external happened.
+model ActionLog {
+  id                      String         @id @default(cuid())
+  merchantId              String
+  recommendationVersionId String
+  actionType              String
+  channel                 MessageChannel
+  status                  ActionStatus   @default(PENDING)
+  simulated               Boolean        @default(true)
+  idempotencyKey          String
+  providerMessageId       String?
+  actorId                 String?
+  createdAt               DateTime       @default(now())
+  updatedAt               DateTime       @updatedAt
+
+  merchant              Merchant              @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  recommendationVersion RecommendationVersion @relation(fields: [recommendationVersionId], references: [id], onDelete: Restrict)
+  actor                 User?                 @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  outboundMessages      OutboundMessage[]
+  outcomeEvents         OutcomeEvent[]
+
+  @@unique([merchantId, idempotencyKey])
+  @@index([merchantId, createdAt])
+  @@index([recommendationVersionId])
   @@map("action_log")
+}
+
+// One row per seed/import run (PRD 4.3). merchantId is null until the merchant row exists.
+model ImportRun {
+  id          String       @id @default(cuid())
+  merchantId  String?
+  sourceLabel String
+  status      ImportStatus @default(RUNNING)
+  summary     Json?
+  errors      Json?
+  startedAt   DateTime     @default(now())
+  finishedAt  DateTime?
+
+  merchant Merchant? @relation(fields: [merchantId], references: [id], onDelete: SetNull)
+
+  @@index([merchantId, startedAt])
+  @@map("import_run")
+}
+
+// In-app merchant notification centre (PRD 9.1). No customer-facing channel.
+model Notification {
+  id         String           @id @default(cuid())
+  merchantId String
+  type       NotificationType
+  title      String
+  body       String           @db.Text
+  entityType String?
+  entityId   String?
+  readAt     DateTime?
+  createdAt  DateTime         @default(now())
+
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@index([merchantId, readAt, createdAt])
+  @@map("notification")
+}
+
+// One row per customer message attempt (PRD 9.3). Real sends (simulated=false) are only allowed to opted-in,
+// non-synthetic customers (enforced by trigger). API acceptance (SENT) is not delivery.
+model OutboundMessage {
+  id                String         @id @default(cuid())
+  merchantId        String
+  actionLogId       String
+  customerId        String
+  channel           MessageChannel
+  copy              String         @db.Text
+  templateId        String?
+  status            ActionStatus   @default(PENDING)
+  simulated         Boolean        @default(true)
+  providerMessageId String?
+  providerResponse  Json?
+  idempotencyKey    String
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  merchant  Merchant  @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  actionLog ActionLog @relation(fields: [actionLogId], references: [id], onDelete: Restrict)
+  customer  Customer  @relation(fields: [customerId], references: [id], onDelete: Restrict)
+
+  @@unique([merchantId, idempotencyKey])
+  @@index([actionLogId])
+  @@index([customerId])
+  @@index([providerMessageId])
+  @@map("outbound_message")
+}
+
+// Verified outcomes (PRD 11.2), kept apart from estimates. isSimulated labels demo-only events.
+model OutcomeEvent {
+  id                      String      @id @default(cuid())
+  merchantId              String
+  type                    OutcomeType
+  recommendationVersionId String?
+  actionLogId             String?
+  customerId              String?
+  saleId                  String?
+  amount                  Decimal?    @db.Decimal(12, 2)
+  isSimulated             Boolean     @default(false)
+  occurredAt              DateTime
+  metadata                Json?
+  createdAt               DateTime    @default(now())
+
+  merchant              Merchant               @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  recommendationVersion RecommendationVersion? @relation(fields: [recommendationVersionId], references: [id], onDelete: SetNull)
+  actionLog             ActionLog?             @relation(fields: [actionLogId], references: [id], onDelete: SetNull)
+  customer              Customer?              @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  sale                  Sale?                  @relation(fields: [saleId, merchantId], references: [id, merchantId], onDelete: NoAction)
+
+  @@index([merchantId, occurredAt])
+  @@index([recommendationVersionId])
+  @@map("outcome_event")
 }
