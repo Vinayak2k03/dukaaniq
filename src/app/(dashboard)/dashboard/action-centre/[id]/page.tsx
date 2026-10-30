@@ -14,6 +14,8 @@ import { STATUS_LABEL, STATUS_STYLE } from "@/server/recommendations/state";
 import { renderForCustomer } from "@/server/recommendations/text";
 import { AlternativeForm, ApproveForm, ExecuteForm, RejectForm } from "../decision-forms";
 import { WhatsAppSendList } from "../whatsapp-send-list";
+import { ReminderOutcomesPanel } from "@/components/dashboard/reminder-outcomes";
+import { getReminderOutcomes } from "@/server/outcomes/service";
 import { whatsappLink } from "@/lib/whatsapp";
 import { ChevronLeft, Sparkles, Shield, Users, MessageSquare, Clock, AlertCircle } from "@/components/ui/icons";
 
@@ -47,6 +49,7 @@ export default async function RecommendationDetailPage({
   if (!detail) notFound();
 
   const { rec, version, events } = detail;
+  const outcomes = rec.type === "CREDIT_REMINDER" ? await getReminderOutcomes(membership.merchant.id, rec.id) : null;
   const isOwner = membership.role === "OWNER";
   const sample = version.audience[0]?.customer.displayName ?? "Customer";
   const [why, whatIf] = version.explanation.split("\n\n");
@@ -277,6 +280,8 @@ export default async function RecommendationDetailPage({
           </p>
         )}
       </Panel>
+
+      {outcomes ? <ReminderOutcomesPanel outcomes={outcomes} /> : null}
 
       {/* Immutable Audit Log History */}
       <Panel
