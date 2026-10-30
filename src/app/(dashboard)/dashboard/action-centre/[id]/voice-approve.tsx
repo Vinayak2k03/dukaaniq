@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { answerInfoIntent } from "@/components/voice/info-intents";
-import { VoiceBar, type IntentResponse } from "@/components/voice/voice-bar";
+import { VoiceBar, type IntentResponse, type VoiceBarResult } from "@/components/voice/voice-bar";
 
 type Props = { sarvam: boolean; referenceDate: string; recommendationId: string; version: number; title: string; terms: string[]; pending: boolean; isOwner: boolean };
 
@@ -18,7 +18,7 @@ export function VoiceApprove({ sarvam, referenceDate, recommendationId, version,
   const [result, setResult] = useState<string | null>(null);
   const readBack = `${title}. Version ${version}. Terms: ${terms.join("; ")}. Press "Confirm approval" on screen to approve this exact version.`;
 
-  async function onCommand(r: IntentResponse): Promise<string> {
+  async function onCommand(r: IntentResponse): Promise<VoiceBarResult> {
     switch (r.intent) {
       case "APPROVE_RECOMMENDATION":
         if (!isOwner) return "Only the shop owner can approve.";

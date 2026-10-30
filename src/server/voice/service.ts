@@ -19,7 +19,7 @@ const SYSTEM = [
   'OUTPUT: exactly one JSON object, no markdown, no explanation: {"intent":"...","params":{},"confidence":0.0}',
 ].join("\n");
 
-export type CustomerMatch = { id: string; name: string };
+export type CustomerMatch = { id: string; name: string; phone?: string | null; customerRef?: string | null };
 export type InterpretResult = IntentResult & { customers?: CustomerMatch[] };
 
 /** Keyword matcher first (free); the reasoning model only when nothing matched. Customer names are resolved inside the merchant's own data. */
@@ -36,6 +36,15 @@ export async function interpret(merchantId: string, text: string): Promise<Inter
   }
   if (!r.params.customerName) return r;
   const name = r.params.customerName;
-  const customers = await db.customer.findMany({ where: { merchantId, displayName: { contains: name, mode: "insensitive" } }, select: { id: true, displayName: true }, orderBy: { displayName: "asc" }, take: 6 });
-  return { ...r, customers: customers.map((c) => ({ id: c.id, name: c.displayName })), needsConfirmation: r.needsConfirmation || customers.length !== 1 };
+  const customers = await db.customer.findMany({
+    where: { merchantId, displayName: { contains: name, mode: "insensitive" } },
+    select: { id: true, displayName: true, phone: true, customerRef: true },
+    orderBy: { displayName: "asc" },
+    take: 6,
+  });
+  return {
+    ...r,
+    customers: customers.map((c) => ({ id: c.id, name: c.displayName, phone: c.phone, customerRef: c.customerRef })),
+    needsConfirmation: r.needsConfirmation || customers.length !== 1,
+  };
 }

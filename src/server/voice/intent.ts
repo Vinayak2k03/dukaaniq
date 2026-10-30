@@ -68,12 +68,14 @@ const amountOf = (t: string) => {
   return Number.isFinite(n) && n > 0 ? n * 100 : undefined;
 };
 
-/** "Rahul ka ...", "Ramesh ji ko ...", "राहुल का ...", "... for Rahul". Returns up to two words, without "ji". */
+/** "Rahul ka ...", "Ramesh ji ko ...", "राहुल का ...", "in Rahul's account", "... for Rahul". Returns up to two words, without "ji". */
 const nameOf = (raw: string) => {
   const t = raw.trim();
-  const before = t.match(/^(?:mera |meri )?([\p{L}]+(?: [\p{L}]+)?)\s+(?:ji\s+|जी\s+)?(?:ka|ki|ko|ne|का|की|को|ने)\s/u);
+  const inAccount = t.match(/\b(?:in|to|for)\s+([\p{L}]+(?: [\p{L}]+)?)(?:'s|\s+ke|\s+ki|\s+ka)?\s+(?:account|khate|wallet|ledger)\b/iu);
+  if (inAccount) return inAccount[1].trim();
+  const before = t.match(/^(?:mera |meri )?([\p{L}]+(?: [\p{L}]+)?)\s+(?:ji\s+|जी\s+)?(?:ka|ki|ko|ne|ke|का|की|को|ने|के)\s/u);
   if (before) return before[1].replace(/\s+(ji|जी)$/u, "").trim();
-  const after = t.match(/\b(?:for|to|from)\s+([\p{L}]+(?: [\p{L}]+)?)\s*$/iu) ?? t.match(/\b(?:for|to|from)\s+([\p{L}]+)/iu);
+  const after = t.match(/\b(?:for|to|from|in)\s+([\p{L}]+(?: [\p{L}]+)?)\s*$/iu) ?? t.match(/\b(?:for|to|from|in)\s+([\p{L}]+)/iu);
   return after ? after[1].trim() : undefined;
 };
 

@@ -1,15 +1,16 @@
 "use client";
 
-import type { IntentResponse } from "./voice-bar";
+import type { IntentResponse, VoiceBarResult } from "./voice-bar";
 
 const rupees = (paise: number) => `₹${(paise / 100).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
 
 /**
- * Read-only voice intents shared by every page (PRD 10.2). Writes are never done here: credit intents only point to
- * the customer's ledger, where the merchant reviews the customer, amount and method before saving.
+ * Read-only voice intents shared by every page (PRD 10.2). Writes are never done automatically:
+ * when the merchant wants to add credit, action buttons are returned with customer details and phone number
+ * so they can directly review and click to add the credit in the moment.
  * Returns null when the intent is not one of these.
  */
-export async function answerInfoIntent(r: IntentResponse, referenceDate: string): Promise<string | null> {
+export async function answerInfoIntent(r: IntentResponse, referenceDate: string): Promise<VoiceBarResult | null> {
   switch (r.intent) {
     case "GET_SALES_SUMMARY": {
       const range = r.params.range ?? "today";
@@ -33,7 +34,50 @@ export async function answerInfoIntent(r: IntentResponse, referenceDate: string)
       const matches = r.customers ?? [];
       if (!r.params.customerName) return "Which customer? Please say or type the customer's name.";
       if (matches.length === 0) return `No customer named "${r.params.customerName}" was found.`;
-      if (matches.length > 1) return `Several customers match "${r.params.customerName}": ${matches.map((m) => m.name).join(", ")}. Please say the full name.`;
+
+      if (r.intent === "ADD_CREDIT") {
+        const amountPaise = r.params.amountPaise ?? 0;
+        const amountStr = amountPaise > 0 ? rupees(amountPaise) : "";
+        if (matches.length > 1) {
+          const list = matches.map((m) => `${m.name} (${m.phone ?? m.customerRef ?? "No phone"})`).join(", ");
+          return {
+            text: `Found ${matches.length} customers named "${r.params.customerName}" (${list}). Which account would you like to add ${amountStr || "credit"} to?`,
+            actions: matches.map((m) => ({
+              label: `Add ${amountStr || "credit"} to ${m.name} (${m.phone ? m.phone.slice(-4) : m.customerRef ?? ""})`,
+              kind: "ADD_CREDIT",
+              customerId: m.id,
+              customerName: m.name,
+              phone: m.phone,
+              amountPaise,
+            })),
+          };
+        }
+        const single = matches[0];
+        return {
+          text: `Ready to record ${amountStr || "credit"} for ${single.name} (${single.phone ?? single.customerRef ?? "No phone"}). Click below to confirm:`,
+          actions: [
+            {
+              label: `Add ${amountStr || "credit"} to ${single.name}`,
+              kind: "ADD_CREDIT",
+              customerId: single.id,
+              customerName: single.name,
+              phone: single.phone,
+              amountPaise,
+            },
+          ],
+        };
+      }
+
+      if (matches.length > 1) {
+        const list = matches
+          .map((m) => {
+            const extra = m.phone ? ` ending in ${m.phone.slice(-4)}` : m.customerRef ? ` (${m.customerRef})` : "";
+            return `${m.name}${extra}`;
+          })
+          .join(", ");
+        return `Found ${matches.length} customers named "${r.params.customerName}" (${list}). Please open their Udhaar page to select the right one.`;
+      }
+
       const c = matches[0];
       if (r.intent === "GET_CUSTOMER_BALANCE") {
         const res = await fetch(`/api/credit/customers/${c.id}/ledger`);
@@ -42,7 +86,7 @@ export async function answerInfoIntent(r: IntentResponse, referenceDate: string)
         return `${c.name} owes ${rupees(d.account.balancePaise)} as of ${d.asOf}${d.account.overduePaise > 0 ? `, of which ${rupees(d.account.overduePaise)} is overdue` : ""}.`;
       }
       const amount = r.params.amountPaise ? ` of ${rupees(r.params.amountPaise)}` : "";
-      const what = r.intent === "ADD_CREDIT" ? `credit${amount}` : r.intent === "RECORD_REPAYMENT" ? `a repayment${amount}` : "a payment reminder";
+      const what = r.intent === "RECORD_REPAYMENT" ? `a repayment${amount}` : "a payment reminder";
       return `To record ${what} for ${c.name}, open their Udhaar page (/dashboard/udhaar/${c.id}) and check the customer and amount before saving. Nothing has been saved by voice.`;
     }
     default:

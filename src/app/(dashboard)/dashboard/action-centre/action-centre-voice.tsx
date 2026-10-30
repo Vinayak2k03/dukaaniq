@@ -2,12 +2,12 @@
 
 import { useRouter } from "next/navigation";
 import { answerInfoIntent } from "@/components/voice/info-intents";
-import { VoiceBar, type IntentResponse } from "@/components/voice/voice-bar";
+import { VoiceBar, type IntentResponse, type VoiceBarResult } from "@/components/voice/voice-bar";
 
 /** Voice on the Action Centre list: tip requests open Growth Tips; approvals happen on a recommendation's own page. */
 export function ActionCentreVoice({ sarvam, referenceDate }: { sarvam: boolean; referenceDate: string }) {
   const router = useRouter();
-  async function onCommand(r: IntentResponse): Promise<string> {
+  async function onCommand(r: IntentResponse): Promise<VoiceBarResult> {
     switch (r.intent) {
       case "GET_TIPS":
       case "GET_TIPS_FOR":

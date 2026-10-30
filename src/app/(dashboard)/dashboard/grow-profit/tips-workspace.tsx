@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useCallback, useState } from "react";
 import { Badge } from "@/components/ui/badge";
-import { ArrowRight, RefreshCw, Sparkles, Users } from "@/components/ui/icons";
+import { ArrowRight, RefreshCw, Sparkles, TrendingUp, Users } from "@/components/ui/icons";
 import { answerInfoIntent } from "@/components/voice/info-intents";
-import { VoiceBar, type IntentResponse } from "@/components/voice/voice-bar";
+import { VoiceBar, type IntentResponse, type VoiceBarResult } from "@/components/voice/voice-bar";
 import { formatPaise } from "@/lib/money";
 import { DECLINE_REASONS } from "@/lib/validation/recommendation";
 import type { TipCard } from "@/server/tips/service";
@@ -46,22 +46,48 @@ const writeSession = (v: string | null) => {
 };
 
 function Economics({ e }: { e: TipCard["economics"] }) {
-  if (e.kind === "note") return <p className="text-[#525866]">{e.note}</p>;
-  if (e.kind === "exposure")
+  if (e.kind === "note") {
     return (
-      <p>
-        <span className="font-semibold text-rose-800">{formatPaise(e.maxExposurePaise)}</span> <span className="text-[#525866]">{e.label.toLowerCase()}</span>
-      </p>
+      <div className="rounded-lg border border-[#E2E4E9] bg-[#F8F9FA] p-2.5">
+        <p className="text-xs text-[#525866]">{e.note}</p>
+      </div>
     );
+  }
+  if (e.kind === "exposure") {
+    return (
+      <div className="rounded-lg border border-rose-200 bg-rose-50/50 p-2.5">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-rose-800">Udhaar Exposure</p>
+        <p className="mt-0.5 text-sm font-bold text-rose-900">{formatPaise(e.maxExposurePaise)}</p>
+        <p className="mt-0.5 text-[11px] text-[#525866]">{e.label}</p>
+      </div>
+    );
+  }
   return (
-    <div className="space-y-0.5">
-      <p>
-        Gross profit impact <span className="font-semibold text-[#171A23]">{formatPaise(e.grossProfitLowPaise)} to {formatPaise(e.grossProfitHighPaise)}</span>
-      </p>
-      <p className="text-[#525866]">Extra sales {formatPaise(e.salesLowPaise)} to {formatPaise(e.salesHighPaise)} · max discount {formatPaise(e.maxDiscountExposurePaise)}</p>
-      <details className="text-[#737B8C]">
-        <summary className="cursor-pointer">{e.label}: assumptions</summary>
-        <ul className="mt-1 list-disc pl-4">{e.assumptions.map((a) => <li key={a}>{a}</li>)}</ul>
+    <div className="space-y-2 rounded-lg border border-emerald-100 bg-emerald-50/40 p-2.5">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <span className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-emerald-800">
+            <TrendingUp size={12} className="text-emerald-600" /> Estimated Sales Uplift
+          </span>
+          <p className="mt-0.5 text-sm font-bold text-emerald-950">
+            {formatPaise(e.salesLowPaise)} – {formatPaise(e.salesHighPaise)}
+          </p>
+        </div>
+        <div className="text-right">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-[#525866]">Est. Gross Profit</span>
+          <p className="mt-0.5 text-xs font-semibold text-[#171A23]">
+            +{formatPaise(e.grossProfitLowPaise)} to +{formatPaise(e.grossProfitHighPaise)}
+          </p>
+        </div>
+      </div>
+
+      <div className="border-t border-emerald-100/80 pt-1.5 text-[11px] text-[#525866]">
+        <span>Max discount exposure: <span className="font-medium text-[#171A23]">{formatPaise(e.maxDiscountExposurePaise)}</span></span>
+      </div>
+
+      <details className="text-[10px] text-[#737B8C]">
+        <summary className="cursor-pointer font-medium hover:text-[#171A23]">{e.label}: assumptions</summary>
+        <ul className="mt-1 list-disc space-y-0.5 pl-4">{e.assumptions.map((a) => <li key={a}>{a}</li>)}</ul>
       </details>
     </div>
   );
@@ -181,7 +207,7 @@ export function TipsWorkspace({ sarvam, isOwner, referenceDate, isDemo }: Props)
   const describe = (r: TipsReply | null) =>
     !r ? "Sorry, I could not prepare tips right now." : r.batch.length === 0 ? "No new tips right now. Everything useful is already in your Action Centre." : `Here ${r.batch.length === 1 ? "is 1 tip" : `are ${r.batch.length} tips`}: ${r.batch.map((t, i) => `${i + 1}. ${t.title}`).join(". ")}. ${r.remaining} more available. Each one waits for your approval.`;
 
-  async function onCommand(r: IntentResponse): Promise<string> {
+  async function onCommand(r: IntentResponse): Promise<VoiceBarResult> {
     const voiceFocus = (r.params.focus ?? []).filter((f) => FAMILY[f]);
     switch (r.intent) {
       case "GET_TIPS":
