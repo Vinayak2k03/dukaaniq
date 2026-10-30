@@ -10,6 +10,7 @@ import { detectReminders } from "./reminders";
 import { freshCodes, type CodeMode } from "./coupons";
 import { OPEN_STATUSES, canTransition } from "./state";
 import { renderForCustomer } from "./text";
+import { normalizePhone } from "@/lib/whatsapp";
 
 /**
  * Approval workflow (PRD 7). Every write runs in one transaction with the recommendation row locked,
@@ -256,6 +257,56 @@ export async function executeSimulated(merchant: Merchant, actor: Actor, recomme
   }, TX);
 }
 
+/**
+ * Free WhatsApp path: the owner taps a wa.me link and sends from their own WhatsApp. We can only know the link was
+ * opened, so each message is recorded as SENT (opened), never DELIVERED. Idempotent per customer.
+ */
+export async function recordWhatsAppOpened(merchant: Merchant, actor: Actor, recommendationId: string, customerId: string): Promise<Result<{ duplicate: boolean }>> {
+  if (merchant.isDemo) return fail("Demo stores cannot send real messages.");
+  return db.$transaction(async (tx): Promise<Result<{ duplicate: boolean }>> => {
+    const rec = await lockRecommendation(tx, merchant.id, recommendationId);
+    if (!rec) return fail("Recommendation not found.");
+    const version = await tx.recommendationVersion.findUnique({
+      where: { recommendationId_version: { recommendationId: rec.id, version: rec.currentVersion } },
+      select: { id: true, message: true, channel: true, audience: { select: { customerId: true, customer: { select: { displayName: true, phone: true, isSynthetic: true, optedInAt: true, optedOutAt: true } } } } },
+    });
+    if (!version) return fail("Recommendation version not found.");
+    if (version.channel !== "WHATSAPP_MANUAL_LINK") return fail("This recommendation is not sent through a WhatsApp link.");
+    const target = version.audience.find((a) => a.customerId === customerId);
+    if (!target) return fail("This customer is not part of the recommendation.");
+    const c = target.customer;
+    if (c.isSynthetic) return fail("Demo customers cannot receive real messages.");
+    if (!c.optedInAt || c.optedOutAt) return fail("This customer has not agreed to receive messages.");
+    if (!normalizePhone(c.phone)) return fail("This customer has no valid phone number.");
+
+    const messageKey = `exec:${version.id}:${customerId}`;
+    if (await tx.outboundMessage.findUnique({ where: { merchantId_idempotencyKey: { merchantId: merchant.id, idempotencyKey: messageKey } }, select: { id: true } })) return { ok: true, duplicate: true };
+
+    let action = await tx.actionLog.findUnique({ where: { merchantId_idempotencyKey: { merchantId: merchant.id, idempotencyKey: `exec:${version.id}` } }, select: { id: true } });
+    if (!action) {
+      if (!canTransition(rec.status, "EXECUTION_PENDING")) return fail("Only an approved recommendation can be sent.");
+      await tx.recommendation.update({ where: { id: rec.id }, data: { status: "EXECUTION_PENDING" } });
+      action = await tx.actionLog.create({
+        data: { merchantId: merchant.id, recommendationVersionId: version.id, actionType: "WHATSAPP_LINK_OPENED", channel: "WHATSAPP_MANUAL_LINK", status: "PENDING", simulated: false, idempotencyKey: `exec:${version.id}`, actorId: actor.userId },
+        select: { id: true },
+      });
+      await tx.auditEvent.create({ data: { merchantId: merchant.id, actorId: actor.userId, eventType: "EXECUTION_REQUESTED", entityType: "recommendation", entityId: rec.id, entityVersion: rec.currentVersion } });
+    } else if (rec.status !== "EXECUTION_PENDING") return fail("This recommendation has already been completed.");
+
+    await tx.outboundMessage.create({
+      data: { merchantId: merchant.id, actionLogId: action.id, customerId, channel: "WHATSAPP_MANUAL_LINK", copy: renderForCustomer(version.message, c.displayName), status: "SENT", simulated: false, idempotencyKey: messageKey },
+    });
+    await tx.auditEvent.create({ data: { merchantId: merchant.id, actorId: actor.userId, eventType: "PROVIDER_RESPONSE", entityType: "recommendation", entityId: rec.id, entityVersion: rec.currentVersion, metadata: { customerId, channel: "WHATSAPP_MANUAL_LINK", note: "WhatsApp link opened by owner; delivery is not tracked." } } });
+
+    const done = await tx.outboundMessage.count({ where: { actionLogId: action.id } });
+    if (done >= version.audience.length) {
+      await tx.actionLog.update({ where: { id: action.id }, data: { status: "SENT" } });
+      await tx.recommendation.update({ where: { id: rec.id }, data: { status: "SENT" } });
+    }
+    return { ok: true, duplicate: false };
+  }, TX);
+}
+
 export type RecommendationListItem = {
   id: string;
   type: RecommendationType;
@@ -288,9 +339,9 @@ export async function getRecommendationDetail(merchantId: string, id: string) {
         select: {
           id: true, version: true, title: true, explanation: true, evidence: true, offerTerms: true, economics: true, message: true, language: true, channel: true,
           approval: { select: { decision: true, declineReason: true, note: true, decidedAt: true, actor: { select: { name: true } } } },
-          audience: { select: { daysSinceLastPurchase: true, lastPurchaseAt: true, customer: { select: { id: true, displayName: true, isSynthetic: true, optedInAt: true, optedOutAt: true } } }, orderBy: { customer: { displayName: "asc" } } },
+          audience: { select: { daysSinceLastPurchase: true, lastPurchaseAt: true, customer: { select: { id: true, displayName: true, phone: true, isSynthetic: true, optedInAt: true, optedOutAt: true } } }, orderBy: { customer: { displayName: "asc" } } },
           couponCodes: { select: { customerId: true, code: true } },
-          actionLogs: { select: { id: true, status: true, simulated: true, createdAt: true, _count: { select: { outboundMessages: true } } }, orderBy: { createdAt: "desc" } },
+          actionLogs: { select: { id: true, status: true, simulated: true, createdAt: true, outboundMessages: { select: { customerId: true } }, _count: { select: { outboundMessages: true } } }, orderBy: { createdAt: "desc" } },
         },
       },
     },

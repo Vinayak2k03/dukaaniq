@@ -17,7 +17,9 @@ import { STATUS_LABEL, STATUS_STYLE } from "@/server/recommendations/state";
 import { renderForCustomer } from "@/server/recommendations/text";
 import { AlternativeForm, ApproveForm, ExecuteForm, RejectForm } from "../decision-forms";
 import { VoiceApprove } from "./voice-approve";
-import { ChevronLeft, Users, MessageSquare } from "@/components/ui/icons";
+import { WhatsAppSendList } from "../whatsapp-send-list";
+import { whatsappLink } from "@/lib/whatsapp";
+import { ChevronLeft, Sparkles, Shield, Users, MessageSquare, Clock, AlertCircle } from "@/components/ui/icons";
 
 export const metadata: Metadata = { title: "Review Recommendation" };
 
@@ -29,6 +31,7 @@ const EVENT_LABEL: Record<string, string> = {
   ALTERNATIVE_CREATED: "Revised alternative generated",
   EXECUTION_REQUESTED: "Action queued",
   SIMULATED_ACTION_RECORDED: "Simulated demo action recorded",
+  PROVIDER_RESPONSE: "Opened in WhatsApp by owner",
 };
 
 const LANGUAGE_LABEL = { HINDI: "Hindi", HINGLISH: "Hinglish", ENGLISH: "English" } as const;
@@ -65,6 +68,14 @@ export default async function RecommendationDetailPage({
   const sampleId = version.audience[0]?.customer.id;
   const sampleCode = sharedCode ?? (sampleId ? codeFor.get(sampleId) : undefined) ?? (typeof terms.codePrefix === "string" ? `[${terms.codeMode === "SHARED" ? "shared" : "unique"} code, created on approval]` : undefined);
   const canAlternative = !rec.alternatives[0] && (rec.type === "CREDIT_REMINDER" || Boolean(asRecord(asRecord(version.evidence).tip).key));
+  const openedIds = new Set(run?.outboundMessages.map((m) => m.customerId));
+  const liveSend = !membership.merchant.isDemo && version.channel === "WHATSAPP_MANUAL_LINK";
+  const targets = version.audience.map(({ customer: c }) => {
+    const code = c.id ? codeFor.get(c.id) : sharedCode;
+    const href = whatsappLink(c.phone, renderForCustomer(version.message, c.displayName, code));
+    const blocked = c.isSynthetic ? "Demo customer" : !c.optedInAt || c.optedOutAt ? "No consent to message" : !href ? "No valid phone number" : null;
+    return { customerId: c.id, name: c.displayName, href: blocked ? null : href, blocked, opened: openedIds.has(c.id) };
+  });
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
@@ -289,7 +300,7 @@ export default async function RecommendationDetailPage({
             <p className="text-xs text-[#171A23]">
               Approved by <strong className="font-semibold text-emerald-800">{version.approval?.actor.name ?? "Store Owner"}</strong>. Staged and ready for execution.
             </p>
-            <ExecuteForm recommendationId={rec.id} />
+            {liveSend ? <WhatsAppSendList recommendationId={rec.id} targets={targets} /> : <ExecuteForm recommendationId={rec.id} />}
           </div>
         ) : rec.status === "REJECTED" ? (
           <div className="space-y-3">
@@ -309,10 +320,12 @@ export default async function RecommendationDetailPage({
               <AlternativeForm recommendationId={rec.id} />
             ) : null}
           </div>
+        ) : liveSend && rec.status === "EXECUTION_PENDING" ? (
+          <WhatsAppSendList recommendationId={rec.id} targets={targets} />
         ) : (
           <p className="text-xs text-[#171A23]">
             {run
-              ? `Action executed on ${formatDateTimeIST(run.createdAt)} (${run.simulated ? "Simulated demo event logged" : "Sent"} to ${run._count.outboundMessages} recipients).`
+              ? `Action executed on ${formatDateTimeIST(run.createdAt)} (${run.simulated ? "Simulated demo event logged" : "WhatsApp opened"} for ${run._count.outboundMessages} recipients).`
               : STATUS_LABEL[rec.status]}
           </p>
         )}
