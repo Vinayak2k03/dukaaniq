@@ -6,7 +6,7 @@ import type { DeclineReason } from "@/generated/prisma/enums";
 import { approveSchema, recommendationIdSchema, rejectSchema } from "@/lib/validation/recommendation";
 import { requireSession } from "@/server/auth/session";
 import { getCurrentMembership } from "@/server/merchant/access";
-import { approveRecommendation, createAlternative, createReminderProposals, executeSimulated, rejectRecommendation, type Result } from "@/server/recommendations/service";
+import { approveRecommendation, createAlternative, createReminderProposals, executeSimulated, recordWhatsAppOpened, rejectRecommendation, type Result } from "@/server/recommendations/service";
 
 export type DecisionState = {
   error?: string;
@@ -96,4 +96,18 @@ export async function alternativeAction(_prev: DecisionState, fd: FormData): Pro
     redirect(`/dashboard/action-centre/${newId}`);
   }
   return state;
+}
+
+/** Called when the owner opens a customer's WhatsApp link. Records it once per customer. */
+export async function whatsappOpenedAction(recommendationId: string, customerId: string): Promise<DecisionState> {
+  const ctx = await ownerContext();
+  if ("error" in ctx) return ctx;
+  const p = recommendationIdSchema.safeParse({ recommendationId });
+  if (!p.success || !customerId) return { error: "Invalid request." };
+  return guarded(async () => {
+    const r = await recordWhatsAppOpened(ctx.merchant, ctx.actor, p.data.recommendationId, customerId);
+    if (!r.ok) return { error: r.error };
+    refresh();
+    return { success: r.duplicate ? "Already recorded." : "Recorded." };
+  });
 }
