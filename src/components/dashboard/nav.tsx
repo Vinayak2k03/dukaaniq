@@ -5,17 +5,21 @@ import { usePathname } from "next/navigation";
 
 const links = [
   { href: "/dashboard", label: "Dashboard" },
-  { href: "/dashboard/recover-customers", label: "Recover Customers" },
-  { href: "/dashboard/grow-profit", label: "Grow Profit" },
+  { href: "/dashboard/sales", label: "Sales Analytics" },
+  { href: "/dashboard/customers", label: "Customers" },
+  { href: "/dashboard/action-centre", label: "AI Recommendations" },
+  { href: "/dashboard/transactions", label: "Transactions" },
+  { href: "/dashboard/campaigns", label: "Coupons & Campaigns" },
   { href: "/dashboard/udhaar", label: "Udhaar" },
-  { href: "/dashboard/action-centre", label: "Action Centre" },
+  { href: "/dashboard/recover-customers", label: "Recover Customers" },
+  { href: "/dashboard/import", label: "Workbook Importer" },
   { href: "/dashboard/settings", label: "Settings" },
 ];
 
 export function DashboardNav() {
   const pathname = usePathname();
   return (
-    <nav aria-label="Main" className="flex gap-1 overflow-x-auto md:flex-col">
+    <nav aria-label="Main" className="flex gap-1 overflow-x-auto py-1">
       {links.map(({ href, label }) => {
         const active = pathname === href || (href !== "/dashboard" && pathname.startsWith(`${href}/`));
         return (
@@ -23,8 +27,10 @@ export function DashboardNav() {
             key={href}
             href={href}
             aria-current={active ? "page" : undefined}
-            className={`whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 ${
-              active ? "bg-indigo-50 text-indigo-700" : "text-slate-700 hover:bg-slate-100"
+            className={`whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+              active
+                ? "bg-[#4338CA]/10 text-[#4338CA] font-semibold"
+                : "text-[#525866] hover:bg-[#F4F5F7] hover:text-[#171A23]"
             }`}
           >
             {label}

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { EmptyState, Panel } from "@/components/dashboard/panel";
 import { KpiCard } from "@/components/dashboard/kpi-card";
+import { Badge } from "@/components/ui/badge";
 import { formatLocalDate, formatPaise } from "@/lib/money";
 import { ledgerFilterSchema } from "@/lib/validation/credit";
 import { STATUS_LABEL, STATUS_STYLE } from "@/lib/validation/credit-labels";
@@ -10,16 +11,16 @@ import { requireSession } from "@/server/auth/session";
 import { listAccounts, summarize, type AccountRow } from "@/server/credit/service";
 import { getCurrentMembership } from "@/server/merchant/access";
 import { GenerateRemindersForm } from "../action-centre/decision-forms";
+import { BookMarked, Search, Filter, Shield, Clock, ArrowRight, Sparkles, AlertCircle } from "@/components/ui/icons";
 
-export const metadata: Metadata = { title: "Udhaar" };
+export const metadata: Metadata = { title: "Udhaar Ledger" };
 
-const control = "rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-600/30";
 const STATUS_FILTERS = [
-  ["outstanding", "Has balance"],
-  ["overdue", "Overdue"],
-  ["upcoming", "Due soon / upcoming"],
-  ["settled", "Settled"],
-  ["all", "All with credit history"],
+  ["outstanding", "Has Outstanding Balance"],
+  ["overdue", "Overdue Past Grace Period"],
+  ["upcoming", "Due Soon / Upcoming"],
+  ["settled", "Settled Accounts"],
+  ["all", "All Customers with History"],
 ] as const;
 
 function applyFilter(rows: AccountRow[], status: string, q?: string) {
@@ -44,7 +45,10 @@ export default async function UdhaarPage({ searchParams }: PageProps<"/dashboard
   if (!membership) return <EmptyState message="Set up your shop first to use the credit ledger." />;
 
   const raw = await searchParams;
-  const parsed = ledgerFilterSchema.safeParse({ q: Array.isArray(raw.q) ? raw.q[0] : raw.q, status: Array.isArray(raw.status) ? raw.status[0] : raw.status });
+  const parsed = ledgerFilterSchema.safeParse({
+    q: Array.isArray(raw.q) ? raw.q[0] : raw.q,
+    status: Array.isArray(raw.status) ? raw.status[0] : raw.status,
+  });
   const filter = parsed.success ? parsed.data : ledgerFilterSchema.parse({});
 
   const referenceDate = referenceDateFor(membership.merchant);
@@ -52,86 +56,226 @@ export default async function UdhaarPage({ searchParams }: PageProps<"/dashboard
   try {
     rows = await listAccounts(membership.merchant, referenceDate);
   } catch (e) {
-    console.error("udhaar list failed:", e);
+    console.error("Udhaar list failed:", e);
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
-      <h1 className="text-2xl font-semibold text-slate-900">Udhaar</h1>
-      {membership.merchant.isDemo ? (
-        <p role="note" className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
-          Demo store with synthetic data. Overdue is counted as of {formatLocalDate(referenceDate)}.
-        </p>
-      ) : null}
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#E2E4E9] pb-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold tracking-tight text-[#171A23]">Udhaar &amp; Credit Ledger</h1>
+            <Badge variant="brand" size="sm">
+              Append-Only Ledger
+            </Badge>
+          </div>
+          <p className="mt-1 text-xs text-[#737B8C]">
+            Track credit extended to customers, repayments received and automated overdue payment reminders.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2 text-xs">
+          <span className="rounded-lg border border-[#E2E4E9] bg-white px-3 py-1.5 text-[#525866] shadow-xs">
+            Overdue counted as of: <strong className="text-[#171A23]">{formatLocalDate(referenceDate)}</strong>
+          </span>
+        </div>
+      </div>
+
+      {membership.merchant.isDemo && (
+        <div
+          role="note"
+          className="flex items-center justify-between gap-3 rounded-xl border border-amber-200/80 bg-amber-50/70 px-4 py-3 text-xs text-amber-900 shadow-xs"
+        >
+          <span>
+            <strong>Demo store dataset:</strong> 74 immutable ledger entries representing retail credit. Overdue days calculated relative to fixed reference date {referenceDate}.
+          </span>
+          <span className="shrink-0 font-mono text-[11px] text-amber-800">Deterministic Ledger</span>
+        </div>
+      )}
 
       {!rows ? (
-        <p role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-6 text-red-700">We could not load the credit ledger right now. Please refresh the page.</p>
+        <EmptyState message="We could not load the credit ledger right now. Please refresh the page." />
       ) : (
         <>
+          {/* Credit KPI Cards */}
           {(() => {
             const s = summarize(rows);
             return (
               <section aria-label="Credit summary" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <KpiCard label="Total outstanding" value={formatPaise(s.totalOutstandingPaise)} hint="Credit given minus repayments" />
-                <KpiCard label="Customers with balance" value={String(s.customersWithBalance)} />
-                <KpiCard label="Overdue amount" value={formatPaise(s.totalOverduePaise)} hint="Unpaid credit past its due date" />
-                <KpiCard label="Overdue customers" value={String(s.overdueCustomers)} />
+                <KpiCard
+                  label="Total Outstanding Credit"
+                  value={formatPaise(s.totalOutstandingPaise)}
+                  hint="Net credit given minus repayments"
+                  icon={<BookMarked size={16} />}
+                />
+                <KpiCard
+                  label="Customers with Balance"
+                  value={`${s.customersWithBalance} accounts`}
+                  hint="Borrowers with unpaid balances"
+                  icon={<Shield size={16} />}
+                />
+                <KpiCard
+                  label="Overdue Amount"
+                  value={formatPaise(s.totalOverduePaise)}
+                  hint="Past grace period without repayment"
+                  icon={<Clock size={16} />}
+                />
+                <KpiCard
+                  label="Overdue Borrowers"
+                  value={`${s.overdueCustomers} customers`}
+                  hint="Action Centre reminder candidates"
+                  icon={<AlertCircle size={16} />}
+                />
               </section>
             );
           })()}
 
-          <Panel title="Payment reminders" subtitle="DukaanIQ drafts a polite reminder for customers whose credit is overdue past the grace period. Nothing is sent until you approve it in the Action Centre.">
-            {membership.role === "OWNER" ? (
-              <div className="max-w-md space-y-2">
-                <GenerateRemindersForm />
-                <Link href="/dashboard/action-centre" className="inline-block text-sm font-medium text-indigo-700 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600">Open the Action Centre</Link>
+          {/* AI Automated Payment Reminder Generator */}
+          <div className="rounded-xl border border-indigo-200 bg-gradient-to-r from-indigo-50/70 via-white to-indigo-50/40 p-5 shadow-xs">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-start gap-3.5">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#4338CA] text-white">
+                  <Sparkles size={20} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-[#171A23]">AI Payment Reminder Copilot</h3>
+                  <p className="mt-0.5 text-xs text-[#525866] max-w-xl leading-relaxed">
+                    DukaanIQ scans your ledger for customers overdue past their grace period, drafting polite, multi-lingual WhatsApp reminders. Nothing is sent until you approve in the Action Centre.
+                  </p>
+                </div>
               </div>
-            ) : (
-              <p className="text-sm text-slate-600">Only the shop owner can prepare reminders.</p>
-            )}
-          </Panel>
 
-          <form method="get" action="/dashboard/udhaar" className="flex flex-wrap items-end gap-3 rounded-2xl border border-slate-200 bg-white p-4">
-            <div>
-              <label htmlFor="q" className="block text-xs font-medium text-slate-600">Search customer</label>
-              <input id="q" name="q" type="search" defaultValue={filter.q} maxLength={60} className={control} />
+              {membership.role === "OWNER" ? (
+                <div className="flex items-center gap-3">
+                  <GenerateRemindersForm />
+                  <Link
+                    href="/dashboard/action-centre"
+                    className="rounded-lg border border-[#D0D5DD] bg-white px-3.5 py-2 text-xs font-semibold text-[#171A23] hover:bg-[#F8F9FA] transition-colors"
+                  >
+                    Open Action Centre &rarr;
+                  </Link>
+                </div>
+              ) : (
+                <p className="text-xs text-[#737B8C]">Only the store owner can generate reminder proposals.</p>
+              )}
             </div>
-            <div>
-              <label htmlFor="status" className="block text-xs font-medium text-slate-600">Show</label>
-              <select id="status" name="status" defaultValue={filter.status} className={control}>
-                {STATUS_FILTERS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-              </select>
+          </div>
+
+          {/* Search & Filter Bar */}
+          <form
+            method="get"
+            action="/dashboard/udhaar"
+            className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#E2E4E9] bg-white p-3.5 shadow-xs"
+          >
+            <div className="flex flex-wrap items-center gap-3 flex-1 min-w-[240px]">
+              <div className="relative flex-1 min-w-[180px] max-w-sm">
+                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#737B8C]" />
+                <input
+                  id="q"
+                  name="q"
+                  type="search"
+                  defaultValue={filter.q}
+                  placeholder="Search customer by name..."
+                  className="w-full rounded-lg border border-[#D0D5DD] bg-white py-1.5 pl-9 pr-3 text-xs text-[#171A23] placeholder:text-[#94A3B8] shadow-xs focus:border-[#4338CA] focus:outline-none focus:ring-2 focus:ring-[#4338CA]/20"
+                />
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <label htmlFor="status" className="text-xs font-medium text-[#737B8C]">
+                  Filter:
+                </label>
+                <select
+                  id="status"
+                  name="status"
+                  defaultValue={filter.status}
+                  className="rounded-lg border border-[#D0D5DD] bg-white px-2.5 py-1.5 text-xs font-medium text-[#171A23] shadow-xs focus:border-[#4338CA] focus:outline-none focus:ring-2 focus:ring-[#4338CA]/20"
+                >
+                  {STATUS_FILTERS.map(([v, l]) => (
+                    <option key={v} value={v}>
+                      {l}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
-            <button type="submit" className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2">Apply</button>
+
+            <button
+              type="submit"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[#4338CA] px-3.5 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-[#3730A3] transition-colors cursor-pointer"
+            >
+              <Filter size={13} />
+              <span>Apply Filter</span>
+            </button>
           </form>
 
-          <Panel title="Customers" subtitle="To add credit for a customer who has none yet, search their name under All and open them.">
+          {/* Customers Table */}
+          <Panel
+            title="Customer Credit Accounts"
+            subtitle="To extend credit to a customer who has none yet, select 'All' and open their profile."
+          >
             {(() => {
               const list = applyFilter(rows, filter.status, filter.q);
-              if (list.length === 0) return <EmptyState message="No customers match this filter." />;
+              if (list.length === 0) return <EmptyState message="No customers match this filter criteria." />;
+
               return (
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm">
-                    <thead className="text-xs uppercase text-slate-500">
-                      <tr>
-                        <th scope="col" className="py-2 pr-4 font-medium">Customer</th>
-                        <th scope="col" className="py-2 pr-4 text-right font-medium">Outstanding</th>
-                        <th scope="col" className="py-2 pr-4 text-right font-medium">Overdue</th>
-                        <th scope="col" className="py-2 pr-4 font-medium">Next due</th>
-                        <th scope="col" className="py-2 font-medium">Status</th>
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-[#E2E4E9] text-[11px] font-semibold uppercase tracking-wider text-[#737B8C]">
+                        <th scope="col" className="pb-3 pr-4">Customer Name</th>
+                        <th scope="col" className="pb-3 pr-4 text-right">Outstanding Balance</th>
+                        <th scope="col" className="pb-3 pr-4 text-right">Overdue Balance</th>
+                        <th scope="col" className="pb-3 pr-4">Next Due Date</th>
+                        <th scope="col" className="pb-3 pr-4">Standing Status</th>
+                        <th scope="col" className="pb-3 text-right">Action</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100">
+                    <tbody className="divide-y divide-[#F0F2F5]">
                       {list.map((r) => (
-                        <tr key={r.customerId}>
-                          <td className="py-2 pr-4">
-                            <Link href={`/dashboard/udhaar/${r.customerId}`} className="font-medium text-indigo-700 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600">{r.name}</Link>
+                        <tr key={r.customerId} className="hover:bg-[#F8F9FB] transition-colors">
+                          <td className="py-3 pr-4">
+                            <Link
+                              href={`/dashboard/udhaar/${r.customerId}`}
+                              className="font-semibold text-[#171A23] hover:text-[#4338CA] transition-colors"
+                            >
+                              {r.name}
+                            </Link>
                           </td>
-                          <td className="py-2 pr-4 text-right font-medium">{formatPaise(Math.max(r.account.balancePaise, 0))}</td>
-                          <td className="py-2 pr-4 text-right">{r.account.overduePaise ? `${formatPaise(r.account.overduePaise)} (${r.account.daysOverdue} days)` : "-"}</td>
-                          <td className="whitespace-nowrap py-2 pr-4">{r.account.nextDueDate ? formatLocalDate(r.account.nextDueDate) : "-"}</td>
-                          <td className="py-2">
-                            <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${STATUS_STYLE[r.account.status]}`}>{STATUS_LABEL[r.account.status]}</span>
+
+                          <td className="py-3 pr-4 text-right font-mono font-semibold tabular-nums text-[#171A23]">
+                            {formatPaise(Math.max(r.account.balancePaise, 0))}
+                          </td>
+
+                          <td className="py-3 pr-4 text-right font-mono tabular-nums">
+                            {r.account.overduePaise ? (
+                              <span className="font-semibold text-rose-700">
+                                {formatPaise(r.account.overduePaise)}{" "}
+                                <span className="text-[10px] text-rose-600">({r.account.daysOverdue}d)</span>
+                              </span>
+                            ) : (
+                              <span className="text-[#94A3B8]">&mdash;</span>
+                            )}
+                          </td>
+
+                          <td className="whitespace-nowrap py-3 pr-4 text-[#525866]">
+                            {r.account.nextDueDate ? formatLocalDate(r.account.nextDueDate) : "&mdash;"}
+                          </td>
+
+                          <td className="py-3 pr-4">
+                            <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${STATUS_STYLE[r.account.status]}`}>
+                              {STATUS_LABEL[r.account.status]}
+                            </span>
+                          </td>
+
+                          <td className="py-3 text-right">
+                            <Link
+                              href={`/dashboard/udhaar/${r.customerId}`}
+                              className="inline-flex items-center gap-1 rounded-md border border-[#D0D5DD] bg-white px-2.5 py-1 text-[11px] font-medium text-[#171A23] hover:bg-[#F8F9FA] transition-colors"
+                            >
+                              <span>Ledger</span>
+                              <ArrowRight size={11} />
+                            </Link>
                           </td>
                         </tr>
                       ))}
