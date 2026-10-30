@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { sarvamEnabled, sarvamJson } from "@/server/sarvam/client";
 import type { VoiceLanguage } from "@/lib/validation/tips";
 import { askData, type Turn } from "./ask";
-import { INTENTS, NEEDS_CONFIRMATION, SLOT_INTENTS, clarifyQuestion, fillSlots, fuzzyCustomers, intentSchema, matchIntent, missingSlot, notFoundQuestion, unknownIntent, type Intent, type IntentResult, type Pending, type SlotIntent } from "./intent";
+import { INTENTS, NEEDS_CONFIRMATION, SLOT_INTENTS, clarifyOffer, clarifyQuestion, fillSlots, fuzzyCustomers, intentSchema, matchIntent, missingOfferSlot, missingSlot, notFoundQuestion, unknownIntent, type Intent, type IntentResult, type Pending, type SlotIntent } from "./intent";
 
 /**
  * Intent classification only, used when the free keyword matcher found nothing. The reply is Zod-validated
@@ -17,9 +17,12 @@ const SYSTEM = [
   "ASK_DATA=any other question about the shop's own data (products, profit, customers, payments, udhaar totals, comparisons);",
   "ADD_CREDIT=wants to write new udhaar; RECORD_REPAYMENT=customer paid back; REQUEST_REMINDER=wants to remind a customer to pay; APPROVE_RECOMMENDATION=wants to approve an offer; UNKNOWN=anything else.",
   "Params (include only when clearly said): focus: [LOYALTY|FESTIVE|OFF_PEAK|CREDIT_REMINDER|WINBACK|BUNDLE|SLOW_MOVING|PEAK_TIMING]; reason: COST_TOO_HIGH|BENEFIT_UNCLEAR|WRONG_AUDIENCE|BAD_TIMING|OPERATIONAL_CONSTRAINT|DO_NOT_CONTACT|OTHER;",
-  "customerName: the name exactly as spoken; amountPaise: rupees x 100, only if a number was spoken; range: today|7d|30d.",
+  "customerName: the name exactly as spoken; amountPaise: rupees x 100, only if a number was spoken; range: today|7d|30d; discountPct and audience as described for CREATE_OFFER.",
   "Commands may be Hindi in Devanagari, Hinglish in Roman letters, or English, with spelling mistakes from speech recognition (e.g. 'udar', 'bikri', 'kitna hua'). Understand the meaning, not the spelling.",
   "Use the recent conversation for follow-ups: 'aur pichle hafte?' after a sales question is GET_SALES_SUMMARY range 7d; 'uska?' refers to the last customer named.",
+  "REQUEST_REMINDER is ONLY asking a customer to repay udhaar. 'Credit overdue' is not a customer name.",
+  "CREATE_OFFER=the owner wants a discount sent to a group of customers ('25% off for loyal customers', 'inactive customers ko 10 percent chhoot'): set discountPct (whole number 1-50, only if said) and audience (LOYAL=loyal/regular/best, INACTIVE=stopped coming, COOLING=not seen for 2-4 weeks, ACTIVE=recent buyers, ALL=everyone, only if said). Asking for ideas without a percentage is GET_TIPS.",
+  "Customers are stored with English names; a name spoken or written in Hindi script is still a customerName, copy it as given.",
   "RULES: never guess a name or an amount; if the command is unclear or unrelated, answer UNKNOWN with confidence below 0.5.",
   'OUTPUT: exactly one JSON object, no markdown, no explanation: {"intent":"...","params":{},"confidence":0.0}',
 ].join("\n");
@@ -55,6 +58,13 @@ export async function interpret(merchant: Merchant, text: string, language: Voic
       r = { intent, params: d.params, confidence: Math.min(0.8, d.confidence), needsConfirmation: NEEDS_CONFIRMATION.includes(intent), source: "sarvam" };
     }
   }
+  // An offer needs a percentage and a customer group; ask for whichever is missing. The offer itself is only prepared after the on-screen confirm.
+  if (r.intent === "CREATE_OFFER") {
+    const { discountPct, audience } = r.params;
+    const slot = missingOfferSlot(r.params);
+    if (slot) return { ...r, answer: clarifyOffer(slot, language, discountPct), pending: { intent: "CREATE_OFFER", discountPct, audience }, needsConfirmation: true };
+  }
+
   const customers = r.params.customerName ? await findCustomers(merchant.id, r.params.customerName) : undefined;
 
   // Ledger commands ask for whatever is missing (or not found) instead of failing; voice still never writes anything itself.

@@ -7,7 +7,7 @@ import { VoiceWave } from "./voice-wave";
 
 export type IntentResponse = {
   intent: string;
-  params: { focus?: string[]; reason?: string; note?: string; customerName?: string; amountPaise?: number; range?: "today" | "7d" | "30d" };
+  params: { focus?: string[]; reason?: string; note?: string; customerName?: string; amountPaise?: number; range?: "today" | "7d" | "30d"; discountPct?: number; audience?: OfferAudience };
   confidence: number;
   needsConfirmation: boolean;
   source: "keywords" | "sarvam" | "none";
@@ -18,15 +18,19 @@ export type IntentResponse = {
   customers?: { id: string; name: string; phone?: string | null; customerRef?: string | null }[];
 };
 
-export type Pending = { intent: "ADD_CREDIT" | "RECORD_REPAYMENT"; customerName?: string; amountPaise?: number };
+export type OfferAudience = "LOYAL" | "INACTIVE" | "COOLING" | "ACTIVE" | "ALL";
+export type Pending = { intent: "ADD_CREDIT" | "RECORD_REPAYMENT" | "REQUEST_REMINDER" | "GET_CUSTOMER_BALANCE" | "CREATE_OFFER"; customerName?: string; amountPaise?: number; discountPct?: number; audience?: OfferAudience };
 
 export type VoiceAction = {
   label: string;
-  kind: "ADD_CREDIT" | "RECORD_REPAYMENT" | "REQUEST_REMINDER";
+  kind: "ADD_CREDIT" | "RECORD_REPAYMENT" | "REQUEST_REMINDER" | "CREATE_OFFER";
   customerId: string;
   customerName: string;
   phone?: string | null;
   amountPaise: number;
+  /** CREATE_OFFER only: the discount and customer group to prepare an offer proposal for. */
+  discountPct?: number;
+  audience?: OfferAudience;
 };
 
 export type VoiceBarResult = string | { text: string; actions?: VoiceAction[] };
@@ -157,8 +161,28 @@ export function VoiceBar({ sarvam, placeholder, initialText, onCommand }: Props)
     }
   };
 
+  /** Prepares one discount offer as a proposal. It still waits for approval in the Action Centre before anything is sent. */
+  async function prepareOffer(act: VoiceAction) {
+    setBusy(true);
+    setActionSuccess(null);
+    setActionLink(null);
+    try {
+      const res = await fetch("/api/tips/custom-offer", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ discountPct: act.discountPct, audience: act.audience }) });
+      const data = (await res.json()) as { error?: string; recommendationId?: string; title?: string; audienceSize?: number; duplicate?: boolean };
+      if (res.ok && data.recommendationId) {
+        finish(true, data.duplicate ? `"${data.title}" is already waiting for your approval.` : `Offer prepared: ${data.title}. Review the exact message and approve it before anything is sent.`);
+        setActionLink({ href: `/dashboard/action-centre/${data.recommendationId}`, label: "Review offer" });
+      } else finish(false, data.error ?? "Could not prepare the offer.");
+    } catch {
+      setActionSuccess("Network error. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   /** Runs only after the owner taps a button: voice never writes anything by itself. */
   async function executeAction(act: VoiceAction) {
+    if (act.kind === "CREATE_OFFER") return prepareOffer(act);
     const ledger = act.kind === "ADD_CREDIT" || act.kind === "RECORD_REPAYMENT";
     if (ledger && (!act.amountPaise || act.amountPaise <= 0)) {
       window.location.assign(`/dashboard/udhaar/${act.customerId}`);
@@ -318,19 +342,19 @@ export function VoiceBar({ sarvam, placeholder, initialText, onCommand }: Props)
           {actions.length > 0 && (
             <div className="mt-2 flex flex-col gap-1.5 border-t border-[#E2E4E9] pt-2">
               <p className="font-semibold text-[#525866]">
-                {actions[0].kind === "ADD_CREDIT" ? "Select customer to add credit:" : actions[0].kind === "RECORD_REPAYMENT" ? "Select customer to record repayment:" : "Select customer to prepare a reminder:"}
+                {actions[0].kind === "CREATE_OFFER" ? "Confirm to prepare this offer:" : actions[0].kind === "ADD_CREDIT" ? "Select customer to add credit:" : actions[0].kind === "RECORD_REPAYMENT" ? "Select customer to record repayment:" : "Select customer to prepare a reminder:"}
               </p>
               <div className="flex flex-wrap gap-2">
                 {actions.map((act) => (
                   <button
-                    key={act.customerId}
+                    key={act.customerId || act.label}
                     type="button"
                     disabled={busy}
                     onClick={() => void executeAction(act)}
                     className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#4338CA] shadow-sm hover:border-indigo-400 hover:bg-indigo-50/50 disabled:opacity-50"
                   >
                     <span>{act.label}</span>
-                    <span className="font-normal text-[#525866]">({act.phone ? act.phone : "No phone"})</span>
+                    {act.kind === "CREATE_OFFER" ? null : <span className="font-normal text-[#525866]">({act.phone ? act.phone : "No phone"})</span>}
                   </button>
                 ))}
               </div>

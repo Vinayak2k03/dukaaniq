@@ -21,6 +21,9 @@ const warn = (what: string, detail: string): null => {
   return null;
 };
 
+/** Sarvam's own error message for a failed call (never the request content), truncated for logs. */
+const errorDetail = async (res: Response) => (await res.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 200);
+
 /** Removes reasoning blocks and code fences some models wrap around their answer. */
 export const cleanReply = (t: string) =>
   t
@@ -88,13 +91,15 @@ export async function sarvamTranscribe(audio: Blob, languageCode: string): Promi
   const key = env.SARVAM_API_KEY;
   if (!key) return null;
   const form = new FormData();
-  form.append("file", audio, `speech.${audio.type.includes("wav") ? "wav" : audio.type.includes("ogg") ? "ogg" : audio.type.includes("mp4") ? "mp4" : "webm"}`);
+  // Browsers label recordings "audio/webm;codecs=opus"; Sarvam only accepts the bare type and answers HTTP 400 otherwise.
+  const bare = new Blob([audio], { type: audio.type.split(";")[0].trim() || "application/octet-stream" });
+  form.append("file", bare, `speech.${audio.type.includes("wav") ? "wav" : audio.type.includes("ogg") ? "ogg" : audio.type.includes("mp4") ? "mp4" : "webm"}`);
   form.append("model", env.SARVAM_STT_MODEL);
   form.append("language_code", languageCode);
   form.append("mode", "transcribe");
   try {
     const res = await fetch(`${BASE}/speech-to-text`, { method: "POST", headers: { "api-subscription-key": key }, body: form, signal: AbortSignal.timeout(20_000) });
-    if (!res.ok) return warn("stt", `HTTP ${res.status}`);
+    if (!res.ok) return warn("stt", `HTTP ${res.status} ${await errorDetail(res)} (audio ${audio.type || "no type"}, ${audio.size} bytes, language ${languageCode})`);
     const data = (await res.json()) as { transcript?: string; language_code?: string | null };
     const transcript = data.transcript?.trim();
     return transcript ? { transcript, languageCode: data.language_code ?? null } : warn("stt", "empty transcript");

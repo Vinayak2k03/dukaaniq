@@ -18,6 +18,7 @@ export function factsFor(c: Candidate, shopName: string, tone: Tone = "standard"
     const bits = { offer: "coupon" as const, discountText: discountText(o.discountPct, o.capPaise, l), minSpendText: minSpendText(o.minSpendPaise, l), codeMode: o.codeMode, validTill: formatLocalDate(o.validTill) };
     if (c.messageKind === "LOYALTY_COUPON") return { ...base, ...bits, kind: "LOYALTY_COUPON" };
     if (c.messageKind === "WINBACK") return { ...base, ...bits, kind: "WINBACK" };
+    if (c.messageKind === "OFFER") return { ...base, ...bits, kind: "OFFER" };
     if (c.messageKind === "FESTIVE") return { ...base, ...bits, kind: "FESTIVE", festivalName: c.festivalName ?? "" };
     if (c.messageKind === "OFF_PEAK" && o.timeWindow) return { ...base, ...bits, kind: "OFF_PEAK", timeWindowText: timeWindowText(o.timeWindow.dow, o.timeWindow.startHour, o.timeWindow.endHour, l) };
   }
