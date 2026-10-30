@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { approveAction, alternativeAction, executeAction, generateRemindersAction, rejectAction, type DecisionState } from "./actions";
+import { approveAction, alternativeAction, executeAction, generateRemindersAction, recordOutcomeAction, rejectAction, type DecisionState } from "./actions";
 import { FormError } from "@/components/ui/form-error";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { DECLINE_REASONS } from "@/lib/validation/recommendation";
@@ -92,3 +92,38 @@ export const ExecuteForm = ({ recommendationId }: { recommendationId: string }) 
 export const AlternativeForm = ({ recommendationId }: { recommendationId: string }) => (
   <SimpleForm recommendationId={recommendationId} action={alternativeAction} label="Request a revised alternative" pending="Preparing..." />
 );
+
+export function OutcomeForm({ recommendationId, customers, demo }: { recommendationId: string; customers: { id: string; name: string }[]; demo: boolean }) {
+  const [state, action] = useActionState(recordOutcomeAction, initial);
+  const f = state.fieldErrors;
+  return (
+    <form action={action} noValidate className="space-y-3">
+      <input type="hidden" name="recommendationId" value={recommendationId} />
+      <Feedback state={state} />
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="space-y-1.5">
+          <label htmlFor="outcome-customer" className="block text-sm font-medium text-slate-700">Customer</label>
+          <select id="outcome-customer" name="customerId" defaultValue="" aria-invalid={f?.customerId ? true : undefined} className={field}>
+            <option value="" disabled>Choose a customer</option>
+            {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          {f?.customerId?.[0] ? <p className="text-sm text-red-600">{f.customerId[0]}</p> : null}
+        </div>
+        <div className="space-y-1.5">
+          <label htmlFor="outcome-type" className="block text-sm font-medium text-slate-700">What happened</label>
+          <select id="outcome-type" name="type" defaultValue="OFFER_REDEEMED" className={field}>
+            <option value="OFFER_REDEEMED">Coupon / offer redeemed</option>
+            <option value="CUSTOMER_RETURNED">Customer came back to buy</option>
+          </select>
+          {f?.type?.[0] ? <p className="text-sm text-red-600">{f.type[0]}</p> : null}
+        </div>
+        <div className="space-y-1.5">
+          <label htmlFor="outcome-amount" className="block text-sm font-medium text-slate-700">Purchase amount (₹)</label>
+          <input id="outcome-amount" name="amount" type="number" min={0} step="0.01" inputMode="decimal" placeholder="0" aria-invalid={f?.amount ? true : undefined} className={field} />
+          {f?.amount?.[0] ? <p className="text-sm text-red-600">{f.amount[0]}</p> : null}
+        </div>
+      </div>
+      <SubmitButton pendingText="Recording...">{demo ? "Record demo outcome" : "Record verified outcome"}</SubmitButton>
+    </form>
+  );
+}

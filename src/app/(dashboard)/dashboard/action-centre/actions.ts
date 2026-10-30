@@ -3,10 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { DeclineReason } from "@/generated/prisma/enums";
-import { approveSchema, recommendationIdSchema, rejectSchema } from "@/lib/validation/recommendation";
+import { approveSchema, outcomeSchema, recommendationIdSchema, rejectSchema } from "@/lib/validation/recommendation";
 import { requireSession } from "@/server/auth/session";
 import { getCurrentMembership } from "@/server/merchant/access";
-import { approveRecommendation, createAlternative, createReminderProposals, executeSimulated, recordWhatsAppOpened, rejectRecommendation, type Result } from "@/server/recommendations/service";
+import { approveRecommendation, createAlternative, createReminderProposals, executeSimulated, recordOutcome, recordWhatsAppOpened, rejectRecommendation, type Result } from "@/server/recommendations/service";
+import { feedRejectionToSession } from "@/server/tips/service";
 
 export type DecisionState = {
   error?: string;
@@ -63,7 +64,12 @@ export async function rejectAction(_prev: DecisionState, fd: FormData): Promise<
   if ("error" in ctx) return ctx;
   const p = rejectSchema.safeParse(strings(fd));
   if (!p.success) return { fieldErrors: p.error.flatten().fieldErrors };
-  return guarded(async () => settle(await rejectRecommendation(ctx.merchant, ctx.actor, { recommendationId: p.data.recommendationId, version: p.data.version, reason: p.data.reason as DeclineReason, note: p.data.note }), "Rejected. Nothing will be sent."));
+  const reason = p.data.reason as DeclineReason;
+  return guarded(async () => {
+    const r = await rejectRecommendation(ctx.merchant, ctx.actor, { recommendationId: p.data.recommendationId, version: p.data.version, reason, note: p.data.note });
+    if (r.ok) await feedRejectionToSession(ctx.merchant, p.data.recommendationId, reason, p.data.note);
+    return settle(r, "Rejected. Nothing will be sent.");
+  });
 }
 
 export async function executeAction(_prev: DecisionState, fd: FormData): Promise<DecisionState> {
@@ -109,5 +115,19 @@ export async function whatsappOpenedAction(recommendationId: string, customerId:
     if (!r.ok) return { error: r.error };
     refresh();
     return { success: r.duplicate ? "Already recorded." : "Recorded." };
+  });
+}
+
+/** Records a verified (or, in demo stores, simulated) outcome for one customer: coupon redeemed or customer returned. */
+export async function recordOutcomeAction(_prev: DecisionState, fd: FormData): Promise<DecisionState> {
+  const ctx = await ownerContext();
+  if ("error" in ctx) return ctx;
+  const p = outcomeSchema.safeParse(strings(fd));
+  if (!p.success) return { fieldErrors: p.error.flatten().fieldErrors };
+  return guarded(async () => {
+    const r = await recordOutcome(ctx.merchant, ctx.actor, { recommendationId: p.data.recommendationId, customerId: p.data.customerId, type: p.data.type, amountPaise: Math.round(p.data.amount * 100) });
+    if (!r.ok) return { error: r.error };
+    refresh();
+    return { success: r.duplicate ? "This outcome was already recorded for that customer." : "Outcome recorded." };
   });
 }

@@ -56,5 +56,5 @@ export async function getApiMerchantAccess() {
   if (!session) return { error: Response.json({ error: "Not authenticated" }, { status: 401 }) } as const;
   const membership = await getCurrentMembership(session.user.id);
   if (!membership) return { error: Response.json({ error: "No shop set up for this account" }, { status: 403 }) } as const;
-  return { merchant: membership.merchant, session } as const;
+  return { merchant: membership.merchant, session, role: membership.role } as const;
 }

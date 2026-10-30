@@ -143,6 +143,8 @@ enum RecommendationType {
   PEAK_TIMING
   CREDIT_REMINDER
   LOYALTY
+  FESTIVE
+  OFF_PEAK
 }
 
 // PRD 7.2 state machine
@@ -265,6 +267,8 @@ model Merchant {
   notifications    Notification[]
   outboundMessages OutboundMessage[]
   outcomeEvents    OutcomeEvent[]
+  tipSessions      TipSession[]
+  couponCodes      CouponCode[]
 
   @@map("merchant")
 }
@@ -306,6 +310,7 @@ model Customer {
   audienceEntries  RecommendationAudience[]
   outboundMessages OutboundMessage[]
   outcomeEvents    OutcomeEvent[]
+  couponCodes      CouponCode[]
 
   @@unique([id, merchantId])
   @@unique([merchantId, customerRef])
@@ -483,6 +488,7 @@ model RecommendationVersion {
   approval       ApprovalDecision?
   actionLogs     ActionLog[]
   outcomeEvents  OutcomeEvent[]
+  couponCodes    CouponCode[]
 
   @@unique([recommendationId, version])
   @@map("recommendation_version")
@@ -662,4 +668,47 @@ model OutcomeEvent {
   @@index([merchantId, occurredAt])
   @@index([recommendationVersionId])
   @@map("outcome_event")
+}
+
+// One "get tips" conversation (growth-tips engine). `context` is the deterministic query snapshot, so
+// "more tips" and feedback re-rank without re-querying; `candidates` is the latest ranked list;
+// `shownKeys` guarantees a tip is never shown twice in a session. No numbers here come from an LLM.
+model TipSession {
+  id            String   @id @default(cuid())
+  merchantId    String
+  referenceDate String
+  context       Json
+  candidates    Json
+  shownKeys     String[] @default([])
+  feedback      Json
+  llmCalls      Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@index([merchantId, createdAt])
+  @@map("tip_session")
+}
+
+// Coupon codes are created by the backend only when the merchant approves a version (never by an LLM, never
+// before approval). customerId set = a unique code for that customer (loyalty, win-back); customerId null = one
+// code shared by the whole audience (festive weeks, low hours). Codes are unique per merchant so a sale's
+// couponCode maps back to exactly one campaign (and customer) for OFFER_REDEEMED outcomes.
+model CouponCode {
+  id                      String   @id @default(cuid())
+  merchantId              String
+  recommendationVersionId String
+  customerId              String?
+  code                    String
+  createdAt               DateTime @default(now())
+
+  merchant Merchant              @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  version  RecommendationVersion @relation(fields: [recommendationVersionId], references: [id], onDelete: Restrict)
+  customer Customer?             @relation(fields: [customerId], references: [id], onDelete: Restrict)
+
+  @@unique([merchantId, code])
+  @@unique([recommendationVersionId, customerId])
+  @@index([recommendationVersionId])
+  @@map("coupon_code")
 }

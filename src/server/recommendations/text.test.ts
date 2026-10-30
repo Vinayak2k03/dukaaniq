@@ -15,6 +15,8 @@ test("reminder templates include amount and due date in both tones", () => {
 
 test("the name is filled per customer", () => {
   assert.equal(renderForCustomer("Hello {name}, hi {name}", "Rohit"), "Hello Rohit, hi Rohit");
+  assert.equal(renderForCustomer("Hi {name}, use {code}", "Rohit", "LOYAL10-7KQ2MX"), "Hi Rohit, use LOYAL10-7KQ2MX");
+  assert.equal(renderForCustomer("Hi {name}, use {code}", "Rohit"), "Hi Rohit, use {code}");
 });
 
 const facts: MessageFacts = { kind: "CREDIT_REMINDER", language: "ENGLISH", tone: "standard", shopName: "Sharma Kirana Store", amountRupees: "₹350", dueDate: "18 Oct 2026" };

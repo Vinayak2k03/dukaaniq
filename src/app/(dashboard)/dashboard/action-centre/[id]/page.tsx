@@ -2,17 +2,22 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { JsonFacts } from "@/components/dashboard/json-facts";
+import { EconomicsRange, OfferSummary } from "@/components/dashboard/offer-summary";
+import { env } from "@/lib/env";
+import { referenceDateFor } from "@/server/analytics/range";
 import { Panel } from "@/components/dashboard/panel";
 import { Badge } from "@/components/ui/badge";
-import { formatDateTimeIST, formatLocalDate } from "@/lib/money";
+import { formatDateTimeIST, formatLocalDate, formatPaise } from "@/lib/money";
 import { DECLINE_REASONS } from "@/lib/validation/recommendation";
 import { requireSession } from "@/server/auth/session";
 import { getCurrentMembership } from "@/server/merchant/access";
 import { TYPE_LABEL } from "@/server/recommendations/labels";
-import { getRecommendationDetail } from "@/server/recommendations/service";
+import { getRecommendationDetail, listOutcomes } from "@/server/recommendations/service";
+import { summarizeOutcomes } from "@/server/recommendations/outcome-math";
 import { STATUS_LABEL, STATUS_STYLE } from "@/server/recommendations/state";
 import { renderForCustomer } from "@/server/recommendations/text";
-import { AlternativeForm, ApproveForm, ExecuteForm, RejectForm } from "../decision-forms";
+import { AlternativeForm, ApproveForm, ExecuteForm, OutcomeForm, RejectForm } from "../decision-forms";
+import { VoiceApprove } from "./voice-approve";
 import { WhatsAppSendList } from "../whatsapp-send-list";
 import { ReminderOutcomesPanel } from "@/components/dashboard/reminder-outcomes";
 import { getReminderOutcomes } from "@/server/outcomes/service";
@@ -30,9 +35,18 @@ const EVENT_LABEL: Record<string, string> = {
   EXECUTION_REQUESTED: "Action queued",
   SIMULATED_ACTION_RECORDED: "Simulated demo action recorded",
   PROVIDER_RESPONSE: "Opened in WhatsApp by owner",
+  OUTCOME_RECORDED: "Outcome recorded",
 };
 
 const LANGUAGE_LABEL = { HINDI: "Hindi", HINGLISH: "Hinglish", ENGLISH: "English" } as const;
+const EXECUTED = ["SIMULATED", "SENT", "DELIVERED", "READ"];
+const VERDICT = {
+  "no-data": { text: "No outcome recorded yet.", variant: "neutral" },
+  "no-estimate": { text: "No scenario estimate to compare against.", variant: "neutral" },
+  below: { text: "Below the estimated range so far", variant: "warning" },
+  within: { text: "Within the estimated range", variant: "success" },
+  above: { text: "Above the estimated range", variant: "success" },
+} as const;
 const asRecord = (v: unknown) => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
 
 export default async function RecommendationDetailPage({
@@ -49,21 +63,36 @@ export default async function RecommendationDetailPage({
   if (!detail) notFound();
 
   const { rec, version, events } = detail;
-  const outcomes = rec.type === "CREDIT_REMINDER" ? await getReminderOutcomes(membership.merchant.id, rec.id) : null;
+  const reminderOutcomes = rec.type === "CREDIT_REMINDER" ? await getReminderOutcomes(membership.merchant.id, rec.id) : null;
+  const executed = EXECUTED.includes(rec.status);
+  const outcomes = executed ? await listOutcomes(membership.merchant.id, version.id) : [];
+  const measured = summarizeOutcomes(outcomes, version.audience.length, version.economics);
+  const outcomesSimulated = membership.merchant.isDemo || outcomes.some((o) => o.isSimulated);
   const isOwner = membership.role === "OWNER";
   const sample = version.audience[0]?.customer.displayName ?? "Customer";
   const [why, whatIf] = version.explanation.split("\n\n");
   const reasonLabel = (r: string | null) => DECLINE_REASONS.find(([v]) => v === r)?.[1] ?? r;
   const changes = asRecord(version.offerTerms).changesFromPrevious;
   const run = version.actionLogs[0];
+  const source = asRecord(version.evidence).messageSource === "sarvam" ? "Sarvam AI" : "Deterministic Template";
+  const highlights = asRecord(version.evidence).highlights;
+  const summary = asRecord(version.offerTerms).summary;
+  const termLines = Array.isArray(summary) ? summary.map(String) : [];
+  const hasRange = Array.isArray(asRecord(version.economics).scenarios) || typeof asRecord(version.economics).maxExposurePaise === "number";
+  const terms = asRecord(version.offerTerms);
+  const sharedCode = version.couponCodes.find((c) => c.customerId === null)?.code;
+  const codeFor = new Map(version.couponCodes.flatMap((c) => (c.customerId ? [[c.customerId, c.code] as const] : [])));
+  const sampleId = version.audience[0]?.customer.id;
+  const sampleCode = sharedCode ?? (sampleId ? codeFor.get(sampleId) : undefined) ?? (typeof terms.codePrefix === "string" ? `[${terms.codeMode === "SHARED" ? "shared" : "unique"} code, created on approval]` : undefined);
+  const canAlternative = !rec.alternatives[0] && (rec.type === "CREDIT_REMINDER" || Boolean(asRecord(asRecord(version.evidence).tip).key));
   const openedIds = new Set(run?.outboundMessages.map((m) => m.customerId));
   const liveSend = !membership.merchant.isDemo && version.channel === "WHATSAPP_MANUAL_LINK";
   const targets = version.audience.map(({ customer: c }) => {
-    const href = whatsappLink(c.phone, renderForCustomer(version.message, c.displayName));
+    const code = c.id ? codeFor.get(c.id) : sharedCode;
+    const href = whatsappLink(c.phone, renderForCustomer(version.message, c.displayName, code));
     const blocked = c.isSynthetic ? "Demo customer" : !c.optedInAt || c.optedOutAt ? "No consent to message" : !href ? "No valid phone number" : null;
     return { customerId: c.id, name: c.displayName, href: blocked ? null : href, blocked, opened: openedIds.has(c.id) };
   });
-  const source = asRecord(version.evidence).messageSource === "sarvam" ? "Sarvam AI (Phased)" : "Deterministic Template";
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
@@ -119,6 +148,17 @@ export default async function RecommendationDetailPage({
         </div>
       )}
 
+      <VoiceApprove
+        sarvam={Boolean(env.SARVAM_API_KEY)}
+        referenceDate={referenceDateFor(membership.merchant)}
+        recommendationId={rec.id}
+        version={version.version}
+        title={version.title}
+        terms={termLines.length ? termLines : ["See the terms on this page"]}
+        pending={rec.status === "PENDING_APPROVAL"}
+        isOwner={isOwner}
+      />
+
       {/* Why & What Happens If You Approve */}
       <Panel
         title="Executive Summary &amp; Opportunity Rationale"
@@ -158,7 +198,10 @@ export default async function RecommendationDetailPage({
           subtitle="Calculated strictly from ledger records — zero hallucinations"
           badge={<Badge variant="neutral" size="sm">Facts</Badge>}
         >
-          <JsonFacts data={version.evidence} hide={["messageSource"]} />
+          {Array.isArray(highlights) && highlights.length > 0 && (
+            <ul className="mb-3 list-disc space-y-1 pl-4 text-xs text-[#171A23]">{highlights.map((h) => <li key={String(h)}>{String(h)}</li>)}</ul>
+          )}
+          <JsonFacts data={version.evidence} hide={["messageSource", "highlights", "tip"]} />
         </Panel>
 
         <Panel
@@ -166,14 +209,36 @@ export default async function RecommendationDetailPage({
           subtitle="Scenario projections — estimates, not speculative promises"
           badge={<Badge variant="success" size="sm">ROI Model</Badge>}
         >
-          <JsonFacts data={version.economics} />
+          {hasRange ? <EconomicsRange economics={version.economics} /> : <JsonFacts data={version.economics} />}
         </Panel>
       </div>
 
       {/* Terms */}
       {Object.keys(asRecord(version.offerTerms)).filter((k) => k !== "changesFromPrevious").length > 0 && (
-        <Panel title="Policy &amp; Campaign Terms" subtitle="Configured parameters for this action">
-          <JsonFacts data={version.offerTerms} hide={["changesFromPrevious"]} />
+        <Panel title="Policy &amp; Campaign Terms" subtitle="Exact offer terms in this version">
+          {termLines.length > 0 ? (
+            <>
+              <OfferSummary terms={version.offerTerms} />
+              <details className="mt-3 text-xs text-[#737B8C]">
+                <summary className="cursor-pointer">All stored parameters</summary>
+                <div className="mt-2"><JsonFacts data={version.offerTerms} hide={["changesFromPrevious", "summary", "items", "limits", "timeWindow"]} /></div>
+              </details>
+            </>
+          ) : (
+            <JsonFacts data={version.offerTerms} hide={["changesFromPrevious"]} />
+          )}
+        </Panel>
+      )}
+
+      {terms.kind === "COUPON" && (
+        <Panel title="Coupon Codes" subtitle={terms.codeMode === "SHARED" ? "One shared code for every customer in this campaign" : "A unique code for each customer"}>
+          {version.couponCodes.length === 0 ? (
+            <p className="text-xs text-[#737B8C]">No code exists yet. DukaanIQ creates {terms.codeMode === "SHARED" ? "the shared code" : "one random code per customer"} only when you approve this exact version.</p>
+          ) : sharedCode ? (
+            <p className="text-xs">Shared code: <span className="rounded bg-slate-100 px-2 py-0.5 font-mono font-semibold">{sharedCode}</span></p>
+          ) : (
+            <p className="text-xs">{version.couponCodes.length} unique codes created at approval (shown next to each customer below).</p>
+          )}
         </Panel>
       )}
 
@@ -191,6 +256,7 @@ export default async function RecommendationDetailPage({
                   {a.customer.displayName[0]?.toUpperCase()}
                 </div>
                 <span className="font-semibold text-[#171A23]">{a.customer.displayName}</span>
+                {codeFor.get(a.customer.id) && <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px]">{codeFor.get(a.customer.id)}</span>}
               </div>
               <span className="text-[#737B8C]">
                 {a.customer.isSynthetic ? "Demo Customer" : a.customer.optedOutAt ? "Opted Out" : "Consent OK"}
@@ -215,7 +281,7 @@ export default async function RecommendationDetailPage({
             <span className="font-mono text-[10px]">Target: {sample}</span>
           </div>
           <p className="whitespace-pre-wrap font-sans text-xs text-[#171A23] leading-relaxed">
-            {renderForCustomer(version.message, sample)}
+            {version.message ? renderForCustomer(version.message, sample, sampleCode) : "In-store tip: no customer message is sent."}
           </p>
         </div>
         {rec.type === "CREDIT_REMINDER" && (
@@ -226,6 +292,7 @@ export default async function RecommendationDetailPage({
       </Panel>
 
       {/* Executive Decision Panel */}
+      <div id="decision" />
       <Panel
         title="Executive Sign-Off &amp; Action Decision"
         subtitle="Your decision governs this recommendation"
@@ -266,7 +333,7 @@ export default async function RecommendationDetailPage({
                 <span>View the revised alternative proposal</span>
                 <ChevronLeft size={14} className="rotate-180" />
               </Link>
-            ) : rec.type === "CREDIT_REMINDER" ? (
+            ) : canAlternative ? (
               <AlternativeForm recommendationId={rec.id} />
             ) : null}
           </div>
@@ -281,7 +348,71 @@ export default async function RecommendationDetailPage({
         )}
       </Panel>
 
-      {outcomes ? <ReminderOutcomesPanel outcomes={outcomes} /> : null}
+      {reminderOutcomes ? <ReminderOutcomesPanel outcomes={reminderOutcomes} /> : null}
+
+      {/* Outcome verification: measured vs estimated (PRD 11.2, 15, 18) */}
+      {executed && (
+        <Panel
+          title="Measured Outcome vs Estimate"
+          subtitle="Recorded results compared with the scenario range shown before approval"
+          badge={<Badge variant={outcomesSimulated ? "warning" : "success"} size="sm">{outcomesSimulated ? "Simulated" : "Verified"}</Badge>}
+        >
+          <div className="grid gap-4 md:grid-cols-2 text-xs">
+            <div className="rounded-lg border border-[#E2E4E9] bg-[#FAFBFD] p-3.5">
+              <h4 className="mb-2 font-semibold text-[#171A23]">Estimated (before approval)</h4>
+              {measured.estimate ? (
+                <dl className="space-y-1">
+                  <div className="flex justify-between"><dt className="text-[#737B8C]">Customers converting</dt><dd className="tabular-nums font-semibold">{measured.estimate.lowRedemptions} to {measured.estimate.highRedemptions}</dd></div>
+                  <div className="flex justify-between"><dt className="text-[#737B8C]">Extra sales</dt><dd className="tabular-nums font-semibold">{formatPaise(measured.estimate.lowSalesPaise)} to {formatPaise(measured.estimate.highSalesPaise)}</dd></div>
+                </dl>
+              ) : (
+                <p className="text-[#737B8C]">This recommendation had no scenario range.</p>
+              )}
+            </div>
+            <div className="rounded-lg border border-emerald-100 bg-emerald-50/40 p-3.5">
+              <h4 className="mb-2 font-semibold text-emerald-950">Measured (recorded)</h4>
+              <dl className="space-y-1">
+                <div className="flex justify-between"><dt className="text-[#737B8C]">Customers converting</dt><dd className="tabular-nums font-semibold">{measured.customersConverted} of {measured.customersReached} ({measured.conversionPct}%)</dd></div>
+                <div className="flex justify-between"><dt className="text-[#737B8C]">Offers redeemed</dt><dd className="tabular-nums font-semibold">{measured.redemptions}</dd></div>
+                <div className="flex justify-between"><dt className="text-[#737B8C]">Return visits</dt><dd className="tabular-nums font-semibold">{measured.returns}</dd></div>
+                <div className="flex justify-between"><dt className="text-[#737B8C]">Recorded sales</dt><dd className="tabular-nums font-semibold">{formatPaise(measured.measuredSalesPaise)}</dd></div>
+              </dl>
+            </div>
+          </div>
+          <div className="mt-3">
+            <Badge variant={VERDICT[measured.verdict].variant} size="sm">{VERDICT[measured.verdict].text}</Badge>
+          </div>
+
+          {outcomes.length > 0 && (
+            <ul className="mt-4 divide-y divide-[#F0F2F5] text-xs">
+              {outcomes.map((o) => (
+                <li key={o.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                  <span>
+                    <strong className="font-semibold">{o.customer?.displayName ?? "Customer"}</strong>{" "}
+                    {o.type === "OFFER_REDEEMED" ? "redeemed the offer" : "came back to buy"}
+                    {o.amountPaise > 0 && <> &middot; {formatPaise(o.amountPaise)}</>}
+                    {o.isSimulated && <span className="ml-1.5 text-amber-700">(simulated)</span>}
+                  </span>
+                  <span className="font-mono text-[11px] text-[#737B8C]">{formatDateTimeIST(o.occurredAt)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {isOwner && (
+            <div className="mt-4 border-t border-[#F0F2F5] pt-4">
+              {membership.merchant.isDemo && (
+                <p className="mb-2 text-[11px] text-amber-800">Demo store: outcomes you record are stored as simulated and never count as real results.</p>
+              )}
+              <OutcomeForm
+                recommendationId={rec.id}
+                demo={outcomesSimulated}
+                customers={version.audience.map((a) => ({ id: a.customer.id, name: a.customer.displayName }))}
+              />
+            </div>
+          )}
+        </Panel>
+      )}
 
       {/* Immutable Audit Log History */}
       <Panel

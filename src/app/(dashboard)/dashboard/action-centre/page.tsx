@@ -5,6 +5,9 @@ import { Badge } from "@/components/ui/badge";
 import { KpiCard } from "@/components/dashboard/kpi-card";
 import { ReminderOutcomesPanel } from "@/components/dashboard/reminder-outcomes";
 import { getReminderOutcomes } from "@/server/outcomes/service";
+import { env } from "@/lib/env";
+import { referenceDateFor } from "@/server/analytics/range";
+import { ActionCentreVoice } from "./action-centre-voice";
 import { formatDateTimeIST } from "@/lib/money";
 import { requireSession } from "@/server/auth/session";
 import { getCurrentMembership } from "@/server/merchant/access";
@@ -61,6 +64,8 @@ const CATEGORY_MAP: Record<string, { label: string; badge: string }> = {
   SLOW_MOVING: { label: "Sales & Inventory Optimization", badge: "Inventory" },
   PEAK_TIMING: { label: "Marketing & Footfall Timing", badge: "Marketing" },
   LOYALTY: { label: "Customer Loyalty & VIP Engagement", badge: "Loyalty" },
+  FESTIVE: { label: "Festive Campaign", badge: "Festive" },
+  OFF_PEAK: { label: "Low-Hours Offer", badge: "Footfall" },
 };
 
 function RecommendationTable({ rows }: { rows: RecommendationListItem[] }) {
@@ -183,6 +188,13 @@ export default async function ActionCentrePage() {
 
         <div className="flex items-center gap-2.5">
           <Link
+            href="/dashboard/grow-profit"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-[#4338CA] px-3.5 py-2 text-xs font-semibold text-white shadow-xs hover:bg-[#3730A3] transition-colors"
+          >
+            <Sparkles size={13} />
+            <span>Get growth tips</span>
+          </Link>
+          <Link
             href="/dashboard/udhaar"
             className="inline-flex items-center gap-1.5 rounded-lg border border-[#D0D5DD] bg-white px-3.5 py-2 text-xs font-semibold text-[#171A23] shadow-xs hover:bg-[#F8F9FA] transition-colors"
           >
@@ -191,6 +203,8 @@ export default async function ActionCentrePage() {
           </Link>
         </div>
       </div>
+
+      <ActionCentreVoice sarvam={Boolean(env.SARVAM_API_KEY)} referenceDate={referenceDateFor(membership.merchant)} />
 
       {/* KPI Cards Strip */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

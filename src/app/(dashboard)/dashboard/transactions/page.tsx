@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Panel, EmptyState } from "@/components/dashboard/panel";
 import { KpiCard } from "@/components/dashboard/kpi-card";
 import { Receipt, Search, Filter, Wallet, ArrowRight, Tag } from "@/components/ui/icons";
+import type { Prisma } from "@/generated/prisma/client";
 import type { PaymentMethod, PaymentStatus, SaleStatus } from "@/generated/prisma/enums";
 
 export const metadata: Metadata = { title: "Financial Transactions" };
@@ -35,7 +36,7 @@ export default async function TransactionsPage({
   const pageSize = 50;
 
   // Build Prisma where clause
-  const where: any = { merchantId: merchant.id };
+  const where: Prisma.SaleWhereInput = { merchantId: merchant.id };
 
   if (selectedMethod !== "ALL") {
     where.paymentMethod = selectedMethod as PaymentMethod;
