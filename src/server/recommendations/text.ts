@@ -3,7 +3,8 @@ export type Tone = "standard" | "softer";
 
 type Base = { language: Language; tone: Tone; shopName: string };
 /** Offer wording pieces. Every string is pre-formatted by deterministic code; a text provider only arranges them. */
-export type CouponBits = { offer: "coupon"; discountText: string; minSpendText: string; couponCode: string };
+/** Coupon messages carry the {code} placeholder; the backend creates the real code(s) only after approval. */
+export type CouponBits = { offer: "coupon"; discountText: string; minSpendText: string; codeMode: "UNIQUE_PER_CUSTOMER" | "SHARED" };
 export type ComboBits = { offer: "combo"; comboText: string; comboPriceText: string; comboSavingText: string };
 
 export type MessageFacts =
@@ -24,8 +25,10 @@ export type ComposedMessage = { message: string; source: string };
 export type TextProvider = { name: string; compose(facts: MessageFacts): Promise<string | null> };
 
 export const NAME_PLACEHOLDER = "{name}";
+export const CODE_PLACEHOLDER = "{code}";
 
-const fill = (t: string, v: Record<string, string | number>) => t.replace(/\{(\w+)\}/g, (m, k: string) => (k === "name" ? m : String(v[k] ?? m)));
+/** Fills template variables; {name} and {code} stay as placeholders until execution. */
+const fill = (t: string, v: Record<string, string | number>) => t.replace(/\{(\w+)\}/g, (m, k: string) => (k === "name" || k === "code" ? m : String(v[k] ?? m)));
 
 type Lines = Record<Language, string>;
 type ToneLines = Record<Tone, Lines>;
@@ -150,7 +153,7 @@ function templateVars(f: MessageFacts): Record<string, string> {
   if ("validTill" in f) v.validTill = f.validTill;
   if (f.kind === "FESTIVE") v.festival = f.festivalName;
   if (f.kind === "OFF_PEAK") v.window = f.timeWindowText;
-  if (f.offer === "coupon") Object.assign(v, { discount: f.discountText, minSpend: f.minSpendText, code: f.couponCode });
+  if (f.offer === "coupon") Object.assign(v, { discount: f.discountText, minSpend: f.minSpendText });
   else Object.assign(v, { combo: f.comboText, comboPrice: f.comboPriceText, saving: f.comboSavingText });
   return v;
 }
@@ -174,17 +177,18 @@ const DEVANAGARI_DIGITS = "०१२३४५६७८९";
 const asciiDigits = (t: string) => t.replace(/[०-९]/g, (d) => String(DEVANAGARI_DIGITS.indexOf(d)));
 const numbersIn = (t: string) => asciiDigits(t).match(/\d[\d,]*(?:\.\d+)?/g)?.map((n) => n.replace(/,/g, "")) ?? [];
 
-type FactParts = { allowed: string[]; required: [string, string][]; exact: [string, string][] };
+type FactParts = { allowed: string[]; required: [string, string][]; exact: [string, string][]; placeholders: string[] };
 
 /** Which fact strings may appear (allowed), whose figures must appear (required) and which must appear verbatim (exact). */
 function factParts(f: MessageFacts): FactParts {
-  if (f.kind === "CREDIT_REMINDER") return { allowed: [f.amountRupees, f.dueDate], required: [["amount_missing", f.amountRupees]], exact: [] };
-  if (f.kind === "LOYALTY_CREDIT") return { allowed: [f.creditLimitText], required: [["amount_missing", f.creditLimitText]], exact: [] };
-  const p: FactParts = { allowed: [f.validTill], required: [["validity_missing", f.validTill]], exact: [] };
+  if (f.kind === "CREDIT_REMINDER") return { allowed: [f.amountRupees, f.dueDate], required: [["amount_missing", f.amountRupees]], exact: [], placeholders: [NAME_PLACEHOLDER] };
+  if (f.kind === "LOYALTY_CREDIT") return { allowed: [f.creditLimitText], required: [["amount_missing", f.creditLimitText]], exact: [], placeholders: [NAME_PLACEHOLDER] };
+  const p: FactParts = { allowed: [f.validTill], required: [["validity_missing", f.validTill]], exact: [], placeholders: [NAME_PLACEHOLDER] };
   if (f.offer === "coupon") {
-    p.allowed.push(f.discountText, f.minSpendText, f.couponCode);
+    p.allowed.push(f.discountText, f.minSpendText);
     p.required.push(["amount_missing", f.discountText]);
-    p.exact.push(["code_missing", f.couponCode]);
+    p.exact.push(["code_missing", CODE_PLACEHOLDER]);
+    p.placeholders.push(CODE_PLACEHOLDER);
   } else {
     p.allowed.push(f.comboText, f.comboPriceText, f.comboSavingText);
     p.required.push(["amount_missing", f.comboPriceText]);
@@ -207,8 +211,10 @@ export function rejectReason(text: string, facts: MessageFacts): string | null {
   if (t.length < 20 || t.length > 500) return "length";
   if (/https?:|www\./i.test(t)) return "link";
   if ((t.match(/\{name\}/g) ?? []).length < 1) return "missing_name_placeholder";
-  if ((t.match(/\{\w+\}/g) ?? []).some((p) => p !== NAME_PLACEHOLDER)) return "unknown_placeholder";
   const parts = factParts(facts);
+  if ((t.match(/\{\w+\}/g) ?? []).some((p) => !parts.placeholders.includes(p))) return "unknown_placeholder";
+  // A real-looking code (e.g. LOYAL10-AB12CD) means the model invented one: codes only come from the backend.
+  if (/\b[A-Z]{3,}\d{1,2}-[A-Z0-9]{3,}\b/.test(t)) return "invented_code";
   const found = numbersIn(t);
   for (const [code, s] of parts.required) if (!numbersIn(s).every((n) => found.includes(n))) return code;
   for (const [code, s] of parts.exact) if (!t.includes(s)) return code;
@@ -228,7 +234,11 @@ export function whyRejectReason(text: string, evidence: string[]): string | null
   return null;
 }
 
-export const renderForCustomer = (message: string, name: string) => message.replaceAll(NAME_PLACEHOLDER, name);
+/** Fills the customer's name and (for coupons) their code. Without a code the placeholder is left for previews. */
+export const renderForCustomer = (message: string, name: string, code?: string) => {
+  const withName = message.replaceAll(NAME_PLACEHOLDER, name);
+  return code ? withName.replaceAll(CODE_PLACEHOLDER, code) : withName;
+};
 
 export function rupeesText(paise: number) {
   const r = paise / 100;

@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { averageOrders, slotsFrom, withConfidence } from "@/server/analytics/insights-math";
 import { rejectReason, templateMessage } from "@/server/recommendations/text";
-import { comboPrice, couponCode, maxDiscountPct, pickDiscountPct, scenarioEconomics } from "./economics";
+import { freshCodes, randomCode } from "@/server/recommendations/coupons";
+import { comboPrice, maxDiscountPct, pickDiscountPct, scenarioEconomics } from "./economics";
 import { factsFor } from "./facts";
 import { applyNote, applySignal, keywordNote } from "./feedback";
 import { pastUplift } from "./generators/festive";
@@ -135,7 +136,8 @@ test("rejectReason for offers: code, discount, validity and time window must sur
   assert.ok(f.kind === "OFF_PEAK" && f.offer === "coupon");
   const ok = templateMessage(f);
   assert.equal(rejectReason(ok, f), null);
-  assert.equal(rejectReason(ok.replace(f.couponCode, "HAPPY99-ZZZZ"), f), "code_missing");
+  assert.equal(rejectReason(ok.replace("{code}", "soon"), f), "code_missing");
+  assert.equal(rejectReason(ok.replace("{code}", "{code} (HAPPY7-QW4ZP)"), f), "invented_code");
   assert.equal(rejectReason(ok.replace(f.validTill, "soon"), f), "validity_missing");
   assert.equal(rejectReason(ok.replace(f.timeWindowText, "in the afternoon"), f), "time_window_missing");
   assert.equal(rejectReason(`${ok} Extra 20% off today!`, f), "unexpected_number");
@@ -157,8 +159,19 @@ test("economics: scenario range, capped discount and margin helpers", () => {
   const items = [{ productId: "a", name: "A", pricePaise: 24_500, costPaise: 20_500 }, { productId: "b", name: "B", pricePaise: 4_800, costPaise: 3_900 }];
   const price = comboPrice(items, 8, 5)!;
   assert.ok(price.comboPricePaise >= (20_500 + 3_900) * 1.05 && price.comboPricePaise < price.listPricePaise);
-  for (const seed of ["s1", "dry-run", "test-session", "a", "b", "c", "d"]) assert.match(couponCode("LOYAL", 10, seed), /^LOYAL10-[A-Z2-9]{4}$/);
-  assert.notEqual(couponCode("LOYAL", 10, "s1"), couponCode("LOYAL", 10, "s2"));
+
+});
+
+test("coupon codes: unique per customer for loyalty / win-back, one shared code for festive / low hours, none before approval", () => {
+  const mode = (k: string) => (ranked.find((c) => c.key.startsWith(k))?.offer as { codeMode?: string } | undefined)?.codeMode;
+  assert.deepEqual([mode("LOYALTY:coupon"), mode("WINBACK"), mode("FESTIVE:diwali-2026:coupon"), mode("OFF_PEAK")], ["UNIQUE_PER_CUSTOMER", "UNIQUE_PER_CUSTOMER", "SHARED", "SHARED"]);
+  for (const c of ranked) assert.ok(!JSON.stringify(c).match(/[A-Z]{3,}\d{1,2}-[A-Z2-9]{5,6}\b/), `${c.key} carries a code before approval`);
+  const coupon = ranked.find((c) => c.key === "LOYALTY:coupon")!;
+  assert.match(templateMessage(factsFor(coupon, "Shop")!), /\{code\}/);
+  assert.match(randomCode("LOYAL10", "UNIQUE_PER_CUSTOMER"), /^LOYAL10-[A-HJ-NP-Z2-9]{6}$/);
+  assert.match(randomCode("FEST10", "SHARED"), /^FEST10-[A-HJ-NP-Z2-9]{5}$/);
+  const codes = freshCodes("LOYAL10", "UNIQUE_PER_CUSTOMER", 200, new Set());
+  assert.equal(new Set(codes).size, 200);
 });
 
 test("insight maths: pair confidence, 2-hour slots and festival uplift", () => {

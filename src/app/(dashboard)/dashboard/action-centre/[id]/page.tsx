@@ -59,6 +59,11 @@ export default async function RecommendationDetailPage({
   const summary = asRecord(version.offerTerms).summary;
   const termLines = Array.isArray(summary) ? summary.map(String) : [];
   const hasRange = Array.isArray(asRecord(version.economics).scenarios) || typeof asRecord(version.economics).maxExposurePaise === "number";
+  const terms = asRecord(version.offerTerms);
+  const sharedCode = version.couponCodes.find((c) => c.customerId === null)?.code;
+  const codeFor = new Map(version.couponCodes.flatMap((c) => (c.customerId ? [[c.customerId, c.code] as const] : [])));
+  const sampleId = version.audience[0]?.customer.id;
+  const sampleCode = sharedCode ?? (sampleId ? codeFor.get(sampleId) : undefined) ?? (typeof terms.codePrefix === "string" ? `[${terms.codeMode === "SHARED" ? "shared" : "unique"} code, created on approval]` : undefined);
   const canAlternative = !rec.alternatives[0] && (rec.type === "CREDIT_REMINDER" || Boolean(asRecord(asRecord(version.evidence).tip).key));
 
   return (
@@ -197,6 +202,18 @@ export default async function RecommendationDetailPage({
         </Panel>
       )}
 
+      {terms.kind === "COUPON" && (
+        <Panel title="Coupon Codes" subtitle={terms.codeMode === "SHARED" ? "One shared code for every customer in this campaign" : "A unique code for each customer"}>
+          {version.couponCodes.length === 0 ? (
+            <p className="text-xs text-[#737B8C]">No code exists yet. DukaanIQ creates {terms.codeMode === "SHARED" ? "the shared code" : "one random code per customer"} only when you approve this exact version.</p>
+          ) : sharedCode ? (
+            <p className="text-xs">Shared code: <span className="rounded bg-slate-100 px-2 py-0.5 font-mono font-semibold">{sharedCode}</span></p>
+          ) : (
+            <p className="text-xs">{version.couponCodes.length} unique codes created at approval (shown next to each customer below).</p>
+          )}
+        </Panel>
+      )}
+
       {/* Target Audience List */}
       <Panel
         title={`Target Customers (${version.audience.length})`}
@@ -211,6 +228,7 @@ export default async function RecommendationDetailPage({
                   {a.customer.displayName[0]?.toUpperCase()}
                 </div>
                 <span className="font-semibold text-[#171A23]">{a.customer.displayName}</span>
+                {codeFor.get(a.customer.id) && <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px]">{codeFor.get(a.customer.id)}</span>}
               </div>
               <span className="text-[#737B8C]">
                 {a.customer.isSynthetic ? "Demo Customer" : a.customer.optedOutAt ? "Opted Out" : "Consent OK"}
@@ -235,7 +253,7 @@ export default async function RecommendationDetailPage({
             <span className="font-mono text-[10px]">Target: {sample}</span>
           </div>
           <p className="whitespace-pre-wrap font-sans text-xs text-[#171A23] leading-relaxed">
-            {version.message ? renderForCustomer(version.message, sample) : "In-store tip: no customer message is sent."}
+            {version.message ? renderForCustomer(version.message, sample, sampleCode) : "In-store tip: no customer message is sent."}
           </p>
         </div>
         {rec.type === "CREDIT_REMINDER" && (

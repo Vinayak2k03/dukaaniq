@@ -28,7 +28,7 @@ export function offPeakCandidates(ctx: TipContext, fb: TipFeedback): Built[] {
 
   return quiet.flatMap((s, i): Built[] => {
     const tw = { dow: s.dow, startHour: s.startHour, endHour: s.endHour };
-    const coupon = buildCoupon(ctx, fb, { prefix: "HAPPY", ceilingPct: 7, categories: "ALL", audience, days: 28, timeWindow: tw, seed: `OFF_PEAK:${slotKey(s)}` });
+    const coupon = buildCoupon(ctx, fb, { prefix: "HAPPY", ceilingPct: 7, categories: "ALL", audience, days: 28, timeWindow: tw, codeMode: "SHARED" });
     if (!coupon || coupon.offer.kind !== "COUPON") return [];
     const o = coupon.offer;
     const pctOfAvg = Math.round((s.orders / avg) * 100);

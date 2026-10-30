@@ -52,7 +52,7 @@ export function festiveCandidates(ctx: TipContext, fb: TipFeedback): Built[] {
     const nearness = Math.max(0, 6 - Math.abs(days - 7) / 2) - idx;
     const out: Built[] = [];
 
-    const coupon = buildCoupon(ctx, fb, { prefix: "FEST", ceilingPct: 10, categories: cats, audience, days: 0, window, seed: `FESTIVE:${f.key}:coupon` });
+    const coupon = buildCoupon(ctx, fb, { prefix: "FEST", ceilingPct: 10, categories: cats, audience, days: 0, window, codeMode: "SHARED" });
     if (coupon && coupon.offer.kind === "COUPON") {
       const o = coupon.offer;
       out.push({

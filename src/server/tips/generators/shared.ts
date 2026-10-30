@@ -1,7 +1,7 @@
 import { formatLocalDate } from "@/lib/money";
 import { addDays, daysBetween } from "@/server/analytics/range";
 import { rupeesText, type Language } from "@/server/recommendations/text";
-import { couponCode, maxDiscountPct, pickDiscountPct, productsAboveFloor, roundDownTo, roundUpTo, scenarioEconomics } from "../economics";
+import { maxDiscountPct, pickDiscountPct, productsAboveFloor, roundDownTo, roundUpTo, scenarioEconomics } from "../economics";
 import type { AudienceMember, Candidate, CustomerFact, Offer, ProductFact, TimeWindow, TipContext, TipFeedback } from "../types";
 
 export { addDays, daysBetween, formatLocalDate, rupeesText };
@@ -89,7 +89,7 @@ type CouponArgs = {
   timeWindow?: TimeWindow | null;
   /** Fixed dates (festivals); otherwise `days` from tomorrow. */
   window?: { validFrom: string; validTill: string };
-  seed: string;
+  codeMode: "UNIQUE_PER_CUSTOMER" | "SHARED";
 };
 
 /**
@@ -114,7 +114,8 @@ export function buildCoupon(ctx: TipContext, fb: TipFeedback, a: CouponArgs) {
   const { validFrom, validTill } = a.window ?? validity(ctx, a.days, fb);
   const offer: Offer = {
     kind: "COUPON",
-    couponCode: couponCode(a.prefix, pct, `${ctx.nonce}:${a.seed}`),
+    codeMode: a.codeMode,
+    codePrefix: `${a.prefix}${pct}`,
     discountPct: pct,
     capPaise,
     minSpendPaise,

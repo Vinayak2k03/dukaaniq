@@ -81,7 +81,9 @@ export type ComboItem = { productId: string; name: string; pricePaise: number; c
 export type Offer =
   | {
       kind: "COUPON";
-      couponCode: string;
+      /** UNIQUE_PER_CUSTOMER for loyalty / win-back, SHARED for festive and low-hours offers. Codes are created on approval. */
+      codeMode: "UNIQUE_PER_CUSTOMER" | "SHARED";
+      codePrefix: string;
       discountPct: number;
       capPaise: number;
       minSpendPaise: number;

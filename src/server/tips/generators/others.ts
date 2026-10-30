@@ -10,7 +10,7 @@ export function winbackCandidates(ctx: TipContext, fb: TipFeedback): Built[] {
     .sort((a, b) => b.orders180 - a.orders180 || (a.daysSince ?? 0) - (b.daysSince ?? 0) || a.id.localeCompare(b.id));
   const audience = audienceOf(pool, fb);
   if (audience.length < 3) return [];
-  const coupon = buildCoupon(ctx, fb, { prefix: "MISSYOU", ceilingPct: 10, categories: "ALL", audience, days: 14, seed: "WINBACK" });
+  const coupon = buildCoupon(ctx, fb, { prefix: "MISSYOU", ceilingPct: 10, categories: "ALL", audience, days: 14, codeMode: "UNIQUE_PER_CUSTOMER" });
   if (!coupon || coupon.offer.kind !== "COUPON") return [];
   const o = coupon.offer;
   const days = audience.map((a) => a.daysSince ?? 0).sort((a, b) => a - b);

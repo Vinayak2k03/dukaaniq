@@ -98,25 +98,3 @@ export const creditExposure = (limits: { limitPaise: number; currentBalancePaise
   newExposurePaise: limits.reduce((t, l) => t + Math.max(0, l.limitPaise - l.currentBalancePaise), 0),
   assumptions: ["No sales lift is estimated for a credit facility.", "Approving records the offer only; no credit is given until you record it in the Udhaar ledger."],
 });
-
-/** FNV-1a; used for short coupon suffixes. */
-export function hashText(s: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return h >>> 0;
-}
-
-const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
-/** e.g. LOYAL10-7K2Q. The suffix comes from the session nonce, so each campaign gets its own code. */
-export function couponCode(prefix: string, pct: number, seed: string): string {
-  let h = hashText(seed);
-  let suffix = "";
-  for (let i = 0; i < 4; i++) {
-    suffix += CODE_ALPHABET[h % CODE_ALPHABET.length];
-    h = (Math.floor(h / CODE_ALPHABET.length) ^ hashText(`${seed}:${i}`)) >>> 0;
-  }
-  return `${prefix}${pct}-${suffix}`;
-}

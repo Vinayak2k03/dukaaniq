@@ -2,6 +2,7 @@ import { formatLocalDate } from "@/lib/money";
 import type { Draft } from "@/server/recommendations/draft";
 import { reminderContent } from "@/server/recommendations/reminder-content";
 import { comboSavingText, discountText, minSpendText, rupeesText, templateMessage, timeWindowText, type ComposedMessage, type MessageFacts, type Tone } from "@/server/recommendations/text";
+import { codePreview } from "@/server/recommendations/coupons";
 import { majorityLanguage } from "./generators/shared";
 import type { Candidate, Offer } from "./types";
 
@@ -14,7 +15,7 @@ export function factsFor(c: Candidate, shopName: string, tone: Tone = "standard"
   if (c.messageKind === "CREDIT_REMINDER" && o.kind === "REMINDER") return { ...base, kind: "CREDIT_REMINDER", amountRupees: rupeesText(o.amountPaise), dueDate: formatLocalDate(o.dueDate) };
   if (c.messageKind === "LOYALTY_CREDIT" && o.kind === "CREDIT_LIMIT") return { ...base, kind: "LOYALTY_CREDIT", creditLimitText: rupeesText(o.limits[0]?.limitPaise ?? 0) };
   if (o.kind === "COUPON") {
-    const bits = { offer: "coupon" as const, discountText: discountText(o.discountPct, o.capPaise, l), minSpendText: minSpendText(o.minSpendPaise, l), couponCode: o.couponCode, validTill: formatLocalDate(o.validTill) };
+    const bits = { offer: "coupon" as const, discountText: discountText(o.discountPct, o.capPaise, l), minSpendText: minSpendText(o.minSpendPaise, l), codeMode: o.codeMode, validTill: formatLocalDate(o.validTill) };
     if (c.messageKind === "LOYALTY_COUPON") return { ...base, ...bits, kind: "LOYALTY_COUPON" };
     if (c.messageKind === "WINBACK") return { ...base, ...bits, kind: "WINBACK" };
     if (c.messageKind === "FESTIVE") return { ...base, ...bits, kind: "FESTIVE", festivalName: c.festivalName ?? "" };
@@ -41,7 +42,9 @@ export function offerLines(o: Offer): string[] {
   switch (o.kind) {
     case "COUPON":
       return [
-        `Coupon code ${o.couponCode}`,
+        o.codeMode === "UNIQUE_PER_CUSTOMER"
+          ? `Coupon: a unique code for each customer (${codePreview(o.codePrefix, o.codeMode)}), created only after you approve`
+          : `Coupon: one shared code for all customers (${codePreview(o.codePrefix, o.codeMode)}), created only after you approve`,
         `${o.discountPct}% off, up to ${rupeesText(o.capPaise)} per bill`,
         `Minimum bill ${rupeesText(o.minSpendPaise)}`,
         o.eligibleCategories === "ALL" ? "All categories" : `Categories: ${o.eligibleCategories.join(", ")}`,

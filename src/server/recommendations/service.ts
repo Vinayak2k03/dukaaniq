@@ -7,6 +7,7 @@ import { buildTipAlternative } from "@/server/tips/alternative";
 import type { Draft } from "./draft";
 import { TYPE_LABEL } from "./labels";
 import { detectReminders } from "./reminders";
+import { freshCodes, type CodeMode } from "./coupons";
 import { OPEN_STATUSES, canTransition } from "./state";
 import { renderForCustomer } from "./text";
 
@@ -32,6 +33,22 @@ async function lockRecommendation(tx: Tx, merchantId: string, id: string) {
   const rows = await tx.$queryRaw<{ id: string; status: RecommendationStatus; currentVersion: number }[]>`
     SELECT "id", "status", "currentVersion" FROM recommendation WHERE "id" = ${id} AND "merchantId" = ${merchantId} FOR UPDATE`;
   return rows[0] ?? null;
+}
+
+/**
+ * Creates the coupon code(s) for an approved coupon version, inside the approval transaction. Unique per customer
+ * (loyalty, win-back) or one shared code (festive, low hours). Returns how many codes were created.
+ */
+async function issueCouponCodes(tx: Tx, merchantId: string, versionId: string): Promise<number> {
+  const v = await tx.recommendationVersion.findUnique({ where: { id: versionId }, select: { offerTerms: true, audience: { select: { customerId: true } } } });
+  const terms = (v?.offerTerms ?? {}) as { kind?: string; codeMode?: CodeMode; codePrefix?: string };
+  if (!v || terms.kind !== "COUPON" || !terms.codePrefix || !terms.codeMode) return 0;
+  const owners = terms.codeMode === "SHARED" ? [null] : v.audience.map((a) => a.customerId);
+  if (owners.length === 0) return 0;
+  const taken = new Set((await tx.couponCode.findMany({ where: { merchantId, code: { startsWith: `${terms.codePrefix}-` } }, select: { code: true } })).map((c) => c.code));
+  const codes = freshCodes(terms.codePrefix, terms.codeMode, owners.length, taken);
+  await tx.couponCode.createMany({ data: owners.map((customerId, i) => ({ merchantId, recommendationVersionId: versionId, customerId, code: codes[i] })) });
+  return codes.length;
 }
 
 async function persistDraft(tx: Tx, merchantId: string, actorId: string, draft: Draft, alternativeOfId?: string) {
@@ -103,7 +120,9 @@ export async function approveRecommendation(merchant: Merchant, actor: Actor, in
     if (!version) return fail("Recommendation version not found.");
     await tx.approvalDecision.create({ data: { merchantId: merchant.id, recommendationId: rec.id, versionId: version.id, decision: "APPROVED", actorId: actor.userId } });
     await tx.recommendation.update({ where: { id: rec.id }, data: { status: "APPROVED" } });
-    await tx.auditEvent.create({ data: { merchantId: merchant.id, actorId: actor.userId, eventType: "APPROVED", entityType: "recommendation", entityId: rec.id, entityVersion: rec.currentVersion } });
+    // Codes exist only from this point: never for a pending, rejected or alternative-in-review version.
+    const couponCodes = await issueCouponCodes(tx, merchant.id, version.id);
+    await tx.auditEvent.create({ data: { merchantId: merchant.id, actorId: actor.userId, eventType: "APPROVED", entityType: "recommendation", entityId: rec.id, entityVersion: rec.currentVersion, metadata: { couponCodes } } });
     return { ok: true };
   }, TX);
 }
@@ -185,9 +204,13 @@ export async function executeSimulated(merchant: Merchant, actor: Actor, recomme
     if (!rec) return fail("Recommendation not found.");
     const version = await tx.recommendationVersion.findUnique({
       where: { recommendationId_version: { recommendationId: rec.id, version: rec.currentVersion } },
-      select: { id: true, title: true, message: true, channel: true, recommendation: { select: { type: true } }, audience: { select: { customerId: true, customer: { select: { displayName: true } } } } },
+      select: { id: true, title: true, message: true, channel: true, recommendation: { select: { type: true } }, audience: { select: { customerId: true, customer: { select: { displayName: true } } } }, couponCodes: { select: { customerId: true, code: true } } },
     });
     if (!version) return fail("Recommendation version not found.");
+    const shared = version.couponCodes.find((c) => c.customerId === null)?.code;
+    const codeFor = new Map(version.couponCodes.flatMap((c) => (c.customerId ? [[c.customerId, c.code] as const] : [])));
+    const needsCode = version.message.includes("{code}");
+    if (needsCode && !shared && version.audience.some((a) => !codeFor.has(a.customerId))) return fail("Coupon codes for this version are missing. Approve it again.");
 
     const existing = await tx.actionLog.findUnique({ where: { merchantId_idempotencyKey: { merchantId: merchant.id, idempotencyKey: `exec:${version.id}` } }, select: { id: true } });
     if (existing) return { ok: true, messages: version.audience.length, duplicate: true };
@@ -204,7 +227,7 @@ export async function executeSimulated(merchant: Merchant, actor: Actor, recomme
         actionLogId: action.id,
         customerId: a.customerId,
         channel: version.channel,
-        copy: renderForCustomer(version.message, a.customer.displayName),
+        copy: renderForCustomer(version.message, a.customer.displayName, needsCode ? (codeFor.get(a.customerId) ?? shared) : undefined),
         status: "SIMULATED" as const,
         simulated: true,
         idempotencyKey: `exec:${version.id}:${a.customerId}`,
@@ -266,6 +289,7 @@ export async function getRecommendationDetail(merchantId: string, id: string) {
           id: true, version: true, title: true, explanation: true, evidence: true, offerTerms: true, economics: true, message: true, language: true, channel: true,
           approval: { select: { decision: true, declineReason: true, note: true, decidedAt: true, actor: { select: { name: true } } } },
           audience: { select: { daysSinceLastPurchase: true, lastPurchaseAt: true, customer: { select: { id: true, displayName: true, isSynthetic: true, optedInAt: true, optedOutAt: true } } }, orderBy: { customer: { displayName: "asc" } } },
+          couponCodes: { select: { customerId: true, code: true } },
           actionLogs: { select: { id: true, status: true, simulated: true, createdAt: true, _count: { select: { outboundMessages: true } } }, orderBy: { createdAt: "desc" } },
         },
       },

@@ -107,7 +107,7 @@ function Card({ t }: { t: TipCard }) {
         {t.message && (
           <div className="rounded-lg border border-emerald-200 bg-emerald-50/40 p-2.5">
             <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">Message preview · {LANG[t.language] ?? t.language}</p>
-            <p className="whitespace-pre-wrap leading-relaxed">{t.message.replaceAll("{name}", "[Customer]")}</p>
+            <p className="whitespace-pre-wrap leading-relaxed">{t.message.replaceAll("{name}", "[Customer]").replaceAll("{code}", "[code created after approval]")}</p>
           </div>
         )}
       </div>

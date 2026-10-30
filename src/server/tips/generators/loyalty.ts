@@ -26,7 +26,7 @@ export function loyaltyCandidates(ctx: TipContext, fb: TipFeedback): Built[] {
   ];
   const out: Built[] = [];
 
-  const coupon = buildCoupon(ctx, fb, { prefix: "LOYAL", ceilingPct: 10, categories: "ALL", audience, days: 14, seed: "LOYALTY:coupon" });
+  const coupon = buildCoupon(ctx, fb, { prefix: "LOYAL", ceilingPct: 10, categories: "ALL", audience, days: 14, codeMode: "UNIQUE_PER_CUSTOMER" });
   if (coupon && coupon.offer.kind === "COUPON") {
     const o = coupon.offer;
     out.push({
