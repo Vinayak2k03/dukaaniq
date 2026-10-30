@@ -29,7 +29,16 @@ export const cleanReply = (t: string) =>
     .replace(/```\s*$/i, "")
     .trim();
 
-type ChatArgs = { model: string; system: string; user: string; maxTokens: number; temperature?: number; timeoutMs?: number };
+type ChatArgs = {
+  model: string;
+  system: string;
+  user: string;
+  maxTokens: number;
+  temperature?: number;
+  timeoutMs?: number;
+  /** null turns off hidden reasoning (sarvam-105b), which otherwise spends hundreds of tokens before answering. */
+  reasoningEffort?: "low" | "medium" | "high" | null;
+};
 
 export async function sarvamChat(a: ChatArgs): Promise<string | null> {
   const key = env.SARVAM_API_KEY;
@@ -38,7 +47,7 @@ export async function sarvamChat(a: ChatArgs): Promise<string | null> {
     const res = await fetch(`${BASE}/v1/chat/completions`, {
       method: "POST",
       headers: { "api-subscription-key": key, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: a.model, messages: [{ role: "system", content: a.system }, { role: "user", content: a.user }], temperature: a.temperature ?? 0.3, max_tokens: a.maxTokens }),
+      body: JSON.stringify({ model: a.model, messages: [{ role: "system", content: a.system }, { role: "user", content: a.user }], temperature: a.temperature ?? 0.3, max_tokens: a.maxTokens, ...(a.reasoningEffort !== undefined ? { reasoning_effort: a.reasoningEffort } : {}) }),
       signal: AbortSignal.timeout(a.timeoutMs ?? 8_000),
     });
     if (!res.ok) return warn("chat", `HTTP ${res.status}`);
@@ -66,7 +75,9 @@ export function extractJson(text: string): unknown {
 
 /** Structured parsing with the reasoning model. The caller must validate the result with Zod. */
 export async function sarvamJson(system: string, user: string): Promise<unknown> {
-  const text = await sarvamChat({ model: env.SARVAM_REASONING_MODEL, system, user, maxTokens: 1_500, temperature: 0, timeoutMs: 15_000 });
+  // Classification into a fixed JSON shape needs no hidden reasoning: with it off the answer is ~20-60 tokens
+  // (measured), so a 200-token cap is ample and a runaway reply cannot burn credits.
+  const text = await sarvamChat({ model: env.SARVAM_REASONING_MODEL, system, user, maxTokens: 200, temperature: 0, timeoutMs: 10_000, reasoningEffort: null });
   return text ? extractJson(text) : null;
 }
 

@@ -6,11 +6,24 @@ import { rejectReason, whyRejectReason, type MessageFacts, type TextProvider } f
 const LANGUAGE = { ENGLISH: "English", HINGLISH: "Hinglish (Hindi written in Roman script)", HINDI: "Hindi in Devanagari script" } as const;
 const TONE = { standard: "polite and warm", softer: "very soft, warm and unhurried, with no pressure" } as const;
 
-const RULES =
-  "Use ONLY the facts given. Keep the exact text {name} as a placeholder for the customer's name. Copy every amount, percentage, date, " +
-  "time and coupon code exactly as given. Do not invent numbers, dates, discounts, fees, conditions or links.";
+/**
+ * Shared hard rules for customer copy. Every reply is re-checked by rejectReason(); any breach falls back to the
+ * template, so a vague prompt only wastes credits. Keep these rules exact.
+ */
+const MESSAGE_RULES = [
+  "HARD RULES:",
+  "1. Use ONLY the facts given. Never add offers, conditions, fees, phone numbers, links, emojis or hashtags.",
+  "2. Write {name} exactly once where the customer's name goes. Do not write any real name.",
+  "3. If the facts include a coupon, write the words 'code {code}' exactly where the coupon code goes (e.g. 'use code {code}'). Never write or invent a code.",
+  "4. Copy every amount (₹), percentage, date and time exactly as given, character for character. Write no other number.",
+  "5. Plain text, 1 or 2 sentences, at most 45 words. Language and tone exactly as requested.",
+].join("\n");
 
-const SYSTEM = `You write short WhatsApp messages for a small Indian shop. ${RULES} Reply with the message only, no quotes, no explanation.`;
+const SYSTEM = [
+  "Role: you write one WhatsApp message from a small Indian shop (kirana) to one customer.",
+  MESSAGE_RULES,
+  "OUTPUT: only the message text. No quotes, no greeting label, no explanation, no translation, no alternatives.",
+].join("\n");
 
 const KIND_BRIEF: Record<MessageFacts["kind"], string> = {
   CREDIT_REMINDER: "a gentle payment reminder for pending udhaar (credit)",
@@ -24,17 +37,18 @@ const KIND_BRIEF: Record<MessageFacts["kind"], string> = {
 };
 
 /** The fact lines a model sees: only pre-formatted strings, never raw numbers to compute with. */
-const META = new Set(["kind", "language", "tone"]);
+const META = new Set(["kind", "language", "tone", "offer", "codeMode"]);
 function factLines(f: MessageFacts): string[] {
-  return Object.entries(f).flatMap(([k, v]) => (META.has(k) ? [] : [`${k}: ${String(v)}`]));
+  const lines = Object.entries(f).flatMap(([k, v]) => (META.has(k) ? [] : [`${k}: ${String(v)}`]));
+  return f.kind !== "CREDIT_REMINDER" && f.kind !== "LOYALTY_CREDIT" && f.offer === "coupon" ? [...lines, "couponCode: write {code} (the shop fills the real code later)"] : lines;
 }
 
 /** Sarvam AI wording for one message. Returns null (so the next provider runs) on any failure or unsafe output. */
 export const sarvamProvider: TextProvider = {
   name: "sarvam",
   async compose(facts: MessageFacts) {
-    const user = `Write ${KIND_BRIEF[facts.kind]}.\nLanguage: ${LANGUAGE[facts.language]}\nTone: ${TONE[facts.tone]}\n${factLines(facts).join("\n")}\nMaximum 45 words.`;
-    const text = await sarvamChat({ model: env.SARVAM_CHAT_MODEL, system: SYSTEM, user, maxTokens: 300 });
+    const user = `Purpose: ${KIND_BRIEF[facts.kind]}\nLanguage: ${LANGUAGE[facts.language]}\nTone: ${TONE[facts.tone]}\nFacts:\n${factLines(facts).join("\n")}`;
+    const text = await sarvamChat({ model: env.SARVAM_CHAT_MODEL, system: SYSTEM, user, maxTokens: 160, temperature: 0.3 });
     if (!text) return null;
     const reason = rejectReason(text, facts);
     if (reason) {
@@ -48,10 +62,16 @@ export const sarvamProvider: TextProvider = {
 export type BatchItem = { facts: MessageFacts | null; evidence: string[] };
 export type BatchReply = { message: string | null; why: string | null };
 
-const BATCH_SYSTEM =
-  "You write copy for a small Indian shop's growth tips. For each item return a customer WhatsApp message (when facts are given) " +
-  `and a 1-2 sentence 'why' for the shop owner. ${RULES} The 'why' may only restate numbers from that item's evidence. ` +
-  'Reply with a JSON array only: [{"i": <item number>, "message": "<text or null>", "why": "<text>"}].';
+const BATCH_SYSTEM = [
+  "Role: you write the wording for a small Indian shop's growth tips. All numbers are already decided; you only phrase them.",
+  "For EACH item write two things:",
+  "A) message: a WhatsApp message to the customer, following the hard rules below. If the item says 'Message: none', use null.",
+  "B) why: 1 or 2 short sentences, ALWAYS in simple English (whatever the message language), for the shop owner explaining why this tip makes sense.",
+  "   The 'why' may use ONLY numbers that appear in that item's evidence lines, copied exactly. No promises, no 'guaranteed', no new figures. At most 40 words.",
+  MESSAGE_RULES,
+  "OUTPUT: one JSON array and nothing else (no markdown, no code fence, no commentary). One object per item, same order:",
+  '[{"i":0,"message":"...","why":"..."},{"i":1,"message":null,"why":"..."}]',
+].join("\n");
 
 /**
  * One Sarvam request for a whole batch of tips. Each reply item is validated on its own (message: rejectReason,
@@ -63,14 +83,15 @@ export async function sarvamBatch(items: BatchItem[]): Promise<BatchReply[] | nu
     .map((it, i) =>
       [
         `Item ${i}:`,
-        it.facts ? `Message: ${KIND_BRIEF[it.facts.kind]}; language ${LANGUAGE[it.facts.language]}; tone ${TONE[it.facts.tone]}; maximum 50 words.` : "Message: none (in-store tip), return null.",
-        ...(it.facts ? factLines(it.facts).map((l) => `  ${l}`) : []),
-        "Evidence for 'why' (English):",
+        it.facts ? `Message purpose: ${KIND_BRIEF[it.facts.kind]} | language: ${LANGUAGE[it.facts.language]} | tone: ${TONE[it.facts.tone]}` : "Message: none (in-store tip)",
+        ...(it.facts ? ["Facts:", ...factLines(it.facts).map((l) => `  ${l}`)] : []),
+        "Evidence lines (for 'why', which must be written in English):",
         ...it.evidence.map((e) => `  - ${e}`),
       ].join("\n"),
     )
     .join("\n\n");
-  const text = await sarvamChat({ model: env.SARVAM_CHAT_MODEL, system: BATCH_SYSTEM, user, maxTokens: 400 * items.length + 200, timeoutMs: 25_000 });
+  // ~45-word message + ~40-word why per item; the cap stops a runaway reply from burning credits.
+  const text = await sarvamChat({ model: env.SARVAM_CHAT_MODEL, system: BATCH_SYSTEM, user, maxTokens: 220 * items.length + 60, temperature: 0.3, timeoutMs: 25_000 });
   if (!text) return null;
   const parsed = extractJson(text);
   if (!Array.isArray(parsed)) {
