@@ -1,39 +1,37 @@
-import Link from "next/link";
-import { signOutAction } from "@/app/(auth)/actions";
-import { DashboardNav } from "@/components/dashboard/nav";
 import { requireSession } from "@/server/auth/session";
-import { getCurrentMembership } from "@/server/merchant/access";
+import { getCurrentMembership, listMemberships } from "@/server/merchant/access";
+import { categoryLabel } from "@/lib/validation/merchant";
+import { Sidebar } from "@/components/dashboard/sidebar";
+import { DashboardHeader } from "@/components/dashboard/header";
+import { getMerchantNotifications } from "@/server/notifications/service";
 
 export default async function DashboardLayout({ children }: LayoutProps<"/">) {
   const session = await requireSession();
-  const membership = await getCurrentMembership(session.user.id);
+  const [membership, memberships] = await Promise.all([
+    getCurrentMembership(session.user.id),
+    listMemberships(session.user.id),
+  ]);
+  const notifications = membership ? await getMerchantNotifications(membership.merchantId) : { items: [], unreadCount: 0 };
 
   return (
-    <div className="min-h-screen bg-slate-50 md:grid md:grid-cols-[16rem_1fr]">
-      <aside className="border-b border-slate-200 bg-white p-4 md:border-b-0 md:border-r">
-        <Link href="/dashboard" className="mb-4 block text-xl font-bold text-indigo-700">
-          DukaanIQ
-        </Link>
-        <DashboardNav />
-      </aside>
-      <div className="flex min-w-0 flex-col">
-        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 sm:px-6">
-          <p className="text-sm font-medium text-slate-900">
-            {membership?.merchant.shopName ?? "No shop yet"}
-          </p>
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-slate-600">{session.user.email}</span>
-            <form action={signOutAction}>
-              <button
-                type="submit"
-                className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
-              >
-                Log out
-              </button>
-            </form>
-          </div>
-        </header>
-        <main className="flex-1 p-4 sm:p-6">{children}</main>
+    <div className="min-h-screen bg-[#F8F9FB] text-[#171A23]">
+      <Sidebar
+        merchantName={membership?.merchant.shopName}
+        merchantCategory={membership ? categoryLabel(membership.merchant.businessCategory) : undefined}
+        userEmail={session.user.email}
+        isOwner={membership?.role === "OWNER"}
+      />
+
+      <div className="flex min-w-0 flex-col md:pl-64">
+        <DashboardHeader
+          sessionUser={{ name: session.user.name, email: session.user.email }}
+          currentMembership={membership}
+          memberships={memberships}
+          notifications={notifications}
+        />
+        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
+          {children}
+        </main>
       </div>
     </div>
   );
