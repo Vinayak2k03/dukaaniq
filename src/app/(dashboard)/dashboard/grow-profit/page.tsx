@@ -9,7 +9,8 @@ import { TipsWorkspace } from "./tips-workspace";
 
 export const metadata: Metadata = { title: "Grow Profit" };
 
-export default async function GrowProfitPage() {
+export default async function GrowProfitPage({ searchParams }: { searchParams: Promise<{ ask?: string | string[] }> }) {
+  const { ask } = await searchParams;
   const session = await requireSession();
   const membership = await getCurrentMembership(session.user.id);
   if (!membership) return <EmptyState message="Set up your shop first to get growth tips." />;
@@ -28,7 +29,7 @@ export default async function GrowProfitPage() {
           Open Action Centre
         </Link>
       </div>
-      <TipsWorkspace sarvam={Boolean(env.SARVAM_API_KEY)} isOwner={membership.role === "OWNER"} referenceDate={referenceDateFor(merchant)} isDemo={merchant.isDemo} />
+      <TipsWorkspace sarvam={Boolean(env.SARVAM_API_KEY)} isOwner={membership.role === "OWNER"} referenceDate={referenceDateFor(merchant)} isDemo={merchant.isDemo} initialAsk={typeof ask === "string" ? ask.slice(0, 300) : undefined} />
     </div>
   );
 }

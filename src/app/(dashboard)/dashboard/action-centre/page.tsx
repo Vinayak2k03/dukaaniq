@@ -164,7 +164,8 @@ export default async function ActionCentrePage() {
   }
 
   const outcomes = rows ? await getReminderOutcomes(membership.merchant.id).catch((e) => (console.error("Reminder outcomes failed to load:", e), null)) : null;
-  const allRows = rows ?? [];
+  // Overdue udhaar reminders are not business opportunities: they arrive as in-app notifications instead.
+  const allRows = (rows ?? []).filter((r) => r.type !== "CREDIT_REMINDER");
   const pendingCount = allRows.filter((r) => r.status === "PENDING_APPROVAL" || r.status === "DRAFT").length;
   const approvedCount = allRows.filter((r) => r.status === "APPROVED" || r.status === "EXECUTION_PENDING").length;
   const doneCount = allRows.filter((r) => ["SIMULATED", "SENT", "DELIVERED", "READ"].includes(r.status)).length;
@@ -188,7 +189,7 @@ export default async function ActionCentrePage() {
 
         <div className="flex items-center gap-2.5">
           <Link
-            href="/dashboard/grow-profit"
+            href="/dashboard/grow-profit?ask=koi%20tips%20do"
             className="inline-flex items-center gap-1.5 rounded-lg bg-[#4338CA] px-3.5 py-2 text-xs font-semibold text-white shadow-xs hover:bg-[#3730A3] transition-colors"
           >
             <Sparkles size={13} />
@@ -251,10 +252,10 @@ export default async function ActionCentrePage() {
       {/* Grouped Recommendation Tables */}
       {!rows ? (
         <EmptyState message="Unable to load recommendations. Please refresh." />
-      ) : rows.length === 0 ? (
+      ) : allRows.length === 0 ? (
         <EmptyState
           title="No recommendations yet"
-          message="Scan the Udhaar ledger to prepare polite credit payment reminders, or check customer recovery opportunities."
+          message="Ask for growth tips to get new business ideas. Overdue udhaar reminders appear in your notifications."
         />
       ) : (
         <div className="space-y-6">

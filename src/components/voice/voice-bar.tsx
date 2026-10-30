@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Mic, Volume } from "@/components/ui/icons";
 import { useVoice, type VoiceLanguage } from "./use-voice";
 
@@ -10,6 +10,8 @@ export type IntentResponse = {
   confidence: number;
   needsConfirmation: boolean;
   source: "keywords" | "sarvam" | "none";
+  /** Server-written answer for read-only data questions, already in the chosen language. */
+  answer?: string;
   customers?: { id: string; name: string; phone?: string | null; customerRef?: string | null }[];
 };
 
@@ -27,11 +29,17 @@ export type VoiceBarResult = string | { text: string; actions?: VoiceAction[] };
 type Props = {
   sarvam: boolean;
   placeholder?: string;
+  /** Sent once on mount, e.g. a question carried over from another page (?ask=...). */
+  initialText?: string;
   /** Handles an interpreted command and returns the reply to show (and speak, when the command was spoken). */
   onCommand: (r: IntentResponse, text: string) => Promise<VoiceBarResult>;
 };
 
 const newKey = () => `voice:${Date.now()}:${Math.random().toString(36).slice(2, 9)}`;
+
+/** The conversation keeps the last 3 exchanges; older ones drop off so follow-ups stay focused. */
+const MAX_TURNS = 3;
+type Turn = { user: string; assistant: string };
 
 const LANGS: [VoiceLanguage, string][] = [["HINGLISH", "Hinglish"], ["HINDI", "हिंदी"], ["ENGLISH", "English"]];
 
@@ -39,13 +47,14 @@ const LANGS: [VoiceLanguage, string][] = [["HINGLISH", "Hinglish"], ["HINDI", "�
  * Voice or typed command bar. The transcript is always shown and editable before it is sent; the reply is shown
  * as text and read back only for spoken commands. Voice never approves or saves anything by itself.
  */
-export function VoiceBar({ sarvam, placeholder, onCommand }: Props) {
+export function VoiceBar({ sarvam, placeholder, initialText, onCommand }: Props) {
   const voice = useVoice(sarvam);
   const [language, setLanguage] = useState<VoiceLanguage>("HINGLISH");
   const [text, setText] = useState("");
   const [spoken, setSpoken] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [reply, setReply] = useState<string | null>(null);
+  const [turns, setTurns] = useState<Turn[]>([]);
+  const reply = turns.at(-1)?.assistant ?? null;
   const [actions, setActions] = useState<VoiceAction[]>([]);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [actionLink, setActionLink] = useState<{ href: string; label: string } | null>(null);
@@ -105,31 +114,44 @@ export function VoiceBar({ sarvam, placeholder, onCommand }: Props) {
     }
   }
 
-  async function send(e: FormEvent) {
-    e.preventDefault();
-    const t = text.trim();
-    if (!t || busy) return;
+  async function ask(t: string, wasSpoken: boolean) {
     setBusy(true);
-    setReply(null);
     setActions([]);
     setActionSuccess(null);
     setActionLink(null);
+    let answerText: string;
     try {
-      const res = await fetch("/api/voice/intent", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: t, language }) });
+      const res = await fetch("/api/voice/intent", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: t, language, history: turns.slice(-MAX_TURNS) }) });
       const data = (await res.json()) as IntentResponse & { error?: string };
-      const rawAnswer = res.ok ? await onCommand(data, t) : (data.error ?? "Could not understand that. Please try again.");
-      const answerText = typeof rawAnswer === "string" ? rawAnswer : rawAnswer.text;
-      const newActions = typeof rawAnswer === "object" && rawAnswer.actions ? rawAnswer.actions : [];
-      setReply(answerText);
-      setActions(newActions);
-      if (spoken) void voice.speak(answerText, language);
+      const rawAnswer = !res.ok ? (data.error ?? "Could not understand that. Please try again.") : data.answer ?? (await onCommand(data, t));
+      answerText = typeof rawAnswer === "string" ? rawAnswer : rawAnswer.text;
+      setActions(typeof rawAnswer === "object" && rawAnswer.actions ? rawAnswer.actions : []);
+      if (wasSpoken) void voice.speak(answerText, language);
     } catch {
-      setReply("Something went wrong. Please try again.");
+      answerText = "Something went wrong. Please try again.";
     } finally {
       setBusy(false);
       setSpoken(false);
     }
+    setTurns((all) => [...all, { user: t, assistant: answerText }].slice(-MAX_TURNS));
+    setText("");
   }
+
+  async function send(e: FormEvent) {
+    e.preventDefault();
+    const t = text.trim();
+    if (!t || busy) return;
+    await ask(t, spoken);
+  }
+
+  const asked = useRef(false);
+  useEffect(() => {
+    if (asked.current || !initialText?.trim()) return;
+    asked.current = true;
+    void ask(initialText.trim(), false);
+    // Runs once for the carried-over question only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialText]);
 
   return (
     <div className="rounded-xl border border-[#E2E4E9] bg-white p-3 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
@@ -160,13 +182,29 @@ export function VoiceBar({ sarvam, placeholder, onCommand }: Props) {
         </button>
       </form>
       {voice.error ? <p role="alert" className="mt-2 text-xs text-rose-700">{voice.error}</p> : null}
+      {turns.length > 1 && (
+        <div className="mt-2 space-y-2">
+          {turns.slice(0, -1).map((t, i) => (
+            <div key={i} className="space-y-1 text-xs">
+              <p className="ml-auto w-fit max-w-[85%] rounded-lg bg-indigo-50 px-3 py-1.5 text-[#312E81]">{t.user}</p>
+              <p className="w-fit max-w-[85%] whitespace-pre-wrap rounded-lg bg-[#F8F9FB] px-3 py-1.5 leading-relaxed text-[#525866]">{t.assistant}</p>
+            </div>
+          ))}
+        </div>
+      )}
       {reply ? (
         <div role="status" className="mt-2 space-y-2 rounded-lg bg-[#F8F9FB] p-3 text-xs text-[#171A23]">
+          <p className="ml-auto w-fit max-w-[85%] rounded-lg bg-indigo-50 px-3 py-1.5 text-[#312E81]">{turns.at(-1)?.user}</p>
           <div className="flex items-start justify-between gap-2">
             <p className="whitespace-pre-wrap leading-relaxed">{reply}</p>
-            <button type="button" onClick={() => void voice.speak(reply, language)} aria-label="Read aloud" className="shrink-0 text-[#4338CA] hover:text-[#3730A3]">
-              <Volume size={14} />
-            </button>
+            <div className="flex shrink-0 items-center gap-2">
+              <button type="button" onClick={() => void voice.speak(reply, language)} aria-label="Read aloud" className="text-[#4338CA] hover:text-[#3730A3]">
+                <Volume size={14} />
+              </button>
+              <button type="button" onClick={() => { setTurns([]); setActions([]); setActionSuccess(null); setActionLink(null); }} className="text-[11px] font-medium text-[#737B8C] hover:text-[#171A23]">
+                New chat
+              </button>
+            </div>
           </div>
 
           {actions.length > 0 && (

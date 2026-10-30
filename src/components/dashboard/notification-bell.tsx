@@ -17,6 +17,7 @@ const TYPE_STYLE = {
 } as const;
 
 function hrefFor(n: NotificationItem): string {
+  if (n.type === "OVERDUE_CREDIT" && !n.entityId) return "/dashboard/udhaar";
   if (n.entityType === "recommendation") return n.entityId ? `/dashboard/action-centre/${n.entityId}` : "/dashboard/action-centre";
   if (n.entityType === "credit_entry") return "/dashboard/udhaar";
   if (n.entityType === "customer") return "/dashboard/customers";

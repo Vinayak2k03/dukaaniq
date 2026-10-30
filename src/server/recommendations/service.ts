@@ -100,19 +100,32 @@ async function persistDraft(tx: Tx, merchantId: string, actorId: string, draft: 
 
 const openFilter = { status: { in: OPEN_STATUSES } } as const;
 
+/** One in-app alert per overdue reminder, opening its approval page (PRD 9.1 overdue credit summaries). */
+const notifyReminder = (tx: Prisma.TransactionClient, merchantId: string, id: string, title: string) =>
+  createNotification(tx, merchantId, {
+    type: "OVERDUE_CREDIT",
+    title: "Overdue Udhaar Reminder Ready",
+    body: `"${title}" is ready. Open it to review and approve before anything is sent.`,
+    entityType: "recommendation",
+    entityId: id,
+  });
+
 /** Entry point for any recommendation generator: persists drafts as PENDING_APPROVAL proposals with audit events. */
 export async function submitDrafts(merchant: Merchant, actor: Actor, drafts: Draft[]): Promise<string[]> {
   return db.$transaction(async (tx) => {
     const ids: string[] = [];
     for (const d of drafts) ids.push(await persistDraft(tx, merchant.id, actor.userId, d));
-    if (ids.length > 0) {
-      const kinds = [...new Set(drafts.map((d) => TYPE_LABEL[d.type] ?? d.type))].join(", ");
+    // Overdue reminders live in the notification centre, not the Action Centre list: one alert each, linked to its approval page.
+    for (const [i, d] of drafts.entries()) if (d.type === "CREDIT_REMINDER") await notifyReminder(tx, merchant.id, ids[i], d.title);
+    const growth = drafts.flatMap((d, i) => (d.type === "CREDIT_REMINDER" ? [] : [{ d, id: ids[i] }]));
+    if (growth.length > 0) {
+      const kinds = [...new Set(growth.map(({ d }) => TYPE_LABEL[d.type] ?? d.type))].join(", ");
       await createNotification(tx, merchant.id, {
         type: "APPROVAL_PENDING",
         title: "New Growth Proposals Waiting for Review",
-        body: `DukaanIQ drafted ${plural(ids.length, "recommendation")} (${kinds}). Review and sign off in Action Centre.`,
+        body: `DukaanIQ drafted ${plural(growth.length, "recommendation")} (${kinds}). Review and sign off in Action Centre.`,
         entityType: "recommendation",
-        entityId: ids.length === 1 ? ids[0] : undefined,
+        entityId: growth.length === 1 ? growth[0].id : undefined,
       });
     }
     return ids;
@@ -130,14 +143,8 @@ export async function createReminderProposals(merchant: Merchant, actor: Actor):
     });
     const busy = new Set(open.map((o) => o.customerId));
     const fresh = drafts.filter((d) => !busy.has(d.audience[0]?.customerId ?? ""));
-    for (const d of fresh) await persistDraft(tx, merchant.id, actor.userId, d);
     if (fresh.length === 0) return fail("Every overdue customer already has an open reminder.");
-    await createNotification(tx, merchant.id, {
-      type: "OVERDUE_CREDIT",
-      title: "Overdue Credit Reminders Ready",
-      body: `${plural(fresh.length, "customer")} ${fresh.length === 1 ? "is" : "are"} overdue past grace period. Reminder proposals generated.`,
-      entityType: "recommendation",
-    });
+    for (const d of fresh) await notifyReminder(tx, merchant.id, await persistDraft(tx, merchant.id, actor.userId, d), d.title);
     return { ok: true, created: fresh.length, skipped: drafts.length - fresh.length };
   }, TX);
 }
@@ -158,13 +165,7 @@ export async function createReminderForCustomer(merchant: Merchant, actor: Actor
     });
     if (open) return { ok: true, id: open.id, duplicate: true };
     const id = await persistDraft(tx, merchant.id, actor.userId, draft);
-    await createNotification(tx, merchant.id, {
-      type: "OVERDUE_CREDIT",
-      title: "Overdue Credit Reminder Ready",
-      body: `"${draft.title}" is ready. Review and approve it in Action Centre before anything is sent.`,
-      entityType: "recommendation",
-      entityId: id,
-    });
+    await notifyReminder(tx, merchant.id, id, draft.title);
     return { ok: true, id, duplicate: false };
   }, TX);
 }
