@@ -4,7 +4,8 @@ import { formatLocalDate } from "@/lib/money";
 import { addDays } from "@/server/analytics/range";
 import { listAccounts } from "@/server/credit/service";
 import type { Draft } from "./draft";
-import { composeMessage, rupeesText, type Tone } from "./text";
+import { composeMessage } from "./compose";
+import { rupeesText, type Tone } from "./text";
 
 type Merchant = { id: string; isDemo: boolean; shopName: string };
 

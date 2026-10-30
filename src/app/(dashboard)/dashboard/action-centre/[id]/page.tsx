@@ -43,6 +43,7 @@ export default async function RecommendationPage({ params }: PageProps<"/dashboa
   const reasonLabel = (r: string | null) => DECLINE_REASONS.find(([v]) => v === r)?.[1] ?? r;
   const changes = asRecord(version.offerTerms).changesFromPrevious;
   const run = version.actionLogs[0];
+  const source = asRecord(version.evidence).messageSource === "sarvam" ? "Written by Sarvam AI" : "Fixed template";
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
@@ -94,7 +95,7 @@ export default async function RecommendationPage({ params }: PageProps<"/dashboa
         </ul>
       </Panel>
 
-      <Panel title="Message preview" subtitle={`${LANGUAGE_LABEL[version.language as keyof typeof LANGUAGE_LABEL] ?? version.language} · WhatsApp (manual) · shown for ${sample}`}>
+      <Panel title="Message preview" subtitle={`${LANGUAGE_LABEL[version.language as keyof typeof LANGUAGE_LABEL] ?? version.language} · WhatsApp (manual) · ${source} · shown for ${sample}`}>
         <p className="whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-900">{renderForCustomer(version.message, sample)}</p>
         {rec.type === "CREDIT_REMINDER" ? <p className="mt-2 text-xs text-slate-500">A reminder is not a payment. The balance only changes when you record a repayment.</p> : null}
       </Panel>
