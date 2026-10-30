@@ -26,19 +26,10 @@ export default async function CampaignsPage() {
     where: { merchantId: merchant.id, discountAmount: { gt: 0 } },
   });
 
-  // Calculate totals
-  let totalRedemptions = 0;
-  let totalDiscountPaise = 0;
-  let totalDrivenRevenuePaise = 0;
-
   const campaigns = couponStats.map((c) => {
     const redemptions = c._count.id;
     const discountPaise = c._sum.discountAmount?.mul(100).toDecimalPlaces(0).toNumber() ?? 0;
     const netRevenuePaise = c._sum.netAmount?.mul(100).toDecimalPlaces(0).toNumber() ?? 0;
-
-    totalRedemptions += redemptions;
-    totalDiscountPaise += discountPaise;
-    totalDrivenRevenuePaise += netRevenuePaise;
 
     const code = c.couponCode ?? "MANUAL_STORE_DISCOUNT";
     const isCoupon = c.discountReason === "COUPON";
@@ -74,6 +65,10 @@ export default async function CampaignsPage() {
   });
 
   campaigns.sort((a, b) => b.netRevenuePaise - a.netRevenuePaise);
+
+  const totalRedemptions = campaigns.reduce((t, c) => t + c.redemptions, 0);
+  const totalDiscountPaise = campaigns.reduce((t, c) => t + c.discountPaise, 0);
+  const totalDrivenRevenuePaise = campaigns.reduce((t, c) => t + c.netRevenuePaise, 0);
 
   const avgDiscountRate =
     totalDrivenRevenuePaise > 0
