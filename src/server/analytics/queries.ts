@@ -11,11 +11,11 @@ import { daysBetween, type ResolvedRange } from "./range";
  * - Every query is scoped by a merchantId that the caller obtained from a verified membership.
  */
 
-const LOCAL = Prisma.sql`'Asia/Kolkata'`;
-const ts = (d: Date) => Prisma.sql`(${d.toISOString()}::timestamptz AT TIME ZONE 'UTC')`;
-const num = (v: bigint | number | null | undefined) => Number(v ?? 0);
+export const LOCAL = Prisma.sql`'Asia/Kolkata'`;
+export const ts = (d: Date) => Prisma.sql`(${d.toISOString()}::timestamptz AT TIME ZONE 'UTC')`;
+export const num = (v: bigint | number | null | undefined) => Number(v ?? 0);
 
-const paidInRange = (merchantId: string, r: ResolvedRange) =>
+export const paidInRange = (merchantId: string, r: ResolvedRange) =>
   Prisma.sql`s."merchantId" = ${merchantId} AND s."paymentStatus" = 'PAID' AND s."status" = 'COMPLETED'
     AND s."saleDate" >= ${ts(r.startUtc)} AND s."saleDate" < ${ts(r.endExclusiveUtc)}`;
 
