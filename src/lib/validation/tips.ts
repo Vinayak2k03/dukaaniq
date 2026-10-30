@@ -24,5 +24,8 @@ export const rejectApiSchema = z
   .refine((v) => v.reason !== "OTHER" || Boolean(v.note), { path: ["note"], message: "Please explain the reason." });
 
 export const VOICE_LANGUAGES = ["HINDI", "HINGLISH", "ENGLISH"] as const;
-export const voiceIntentSchema = z.object({ text: z.string().trim().min(1).max(300), language: z.enum(VOICE_LANGUAGES).default("HINGLISH"), sessionId: id.optional() });
+export type VoiceLanguage = (typeof VOICE_LANGUAGES)[number];
+/** Up to the last 3 exchanges, so follow-up questions ("aur pichle hafte?") keep their context. */
+const voiceTurn = z.object({ user: z.string().trim().max(300), assistant: z.string().trim().max(600) });
+export const voiceIntentSchema = z.object({ text: z.string().trim().min(1).max(300), language: z.enum(VOICE_LANGUAGES).default("HINGLISH"), sessionId: id.optional(), history: z.array(voiceTurn).max(3).default([]) });
 export const speakSchema = z.object({ text: z.string().trim().min(1).max(500), language: z.enum(VOICE_LANGUAGES).default("HINGLISH") });

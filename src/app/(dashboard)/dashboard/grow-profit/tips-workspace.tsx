@@ -3,15 +3,12 @@
 import Link from "next/link";
 import { useCallback, useState } from "react";
 import { Badge } from "@/components/ui/badge";
-import { ArrowRight, RefreshCw, Sparkles, TrendingUp, Users } from "@/components/ui/icons";
+import { ArrowRight, RefreshCw, TrendingUp, Users } from "@/components/ui/icons";
 import { answerInfoIntent } from "@/components/voice/info-intents";
 import { VoiceBar, type IntentResponse, type VoiceBarResult } from "@/components/voice/voice-bar";
 import { formatPaise } from "@/lib/money";
 import { DECLINE_REASONS } from "@/lib/validation/recommendation";
 import type { TipCard } from "@/server/tips/service";
-
-type Focus = "ALL" | "LOYALTY" | "FESTIVE" | "OFF_PEAK";
-const FOCUS: [Focus, string][] = [["ALL", "All"], ["LOYALTY", "Loyal customers"], ["FESTIVE", "Festive"], ["OFF_PEAK", "Low hours"]];
 
 const FAMILY: Record<string, { label: string; variant: "brand" | "success" | "warning" | "neutral" | "danger" }> = {
   LOYALTY: { label: "Loyalty", variant: "brand" },
@@ -149,14 +146,16 @@ function Card({ t }: { t: TipCard }) {
   );
 }
 
-type Props = { sarvam: boolean; isOwner: boolean; referenceDate: string; isDemo: boolean };
+type Props = { sarvam: boolean; isOwner: boolean; referenceDate: string; isDemo: boolean; initialAsk?: string };
 
-/** "Get tips" → one batch; "Show more tips" (+ optional feedback) → next batch. Every tip waits in the Action Centre for approval. */
-export function TipsWorkspace({ sarvam, isOwner, referenceDate, isDemo }: Props) {
+/** Ask in the chat ("koi tips do") → one batch; "Show more tips" (+ optional feedback) → next batch. Every tip waits in the Action Centre for approval. */
+export function TipsWorkspace({ sarvam, isOwner, referenceDate, isDemo, initialAsk }: Props) {
   const [sessionId, setSessionId] = useState<string | null>(() => (typeof window === "undefined" ? null : readSession()));
   const [batches, setBatches] = useState<TipCard[][]>([]);
   const [remaining, setRemaining] = useState<number | null>(null);
-  const [focus, setFocus] = useState<Focus>("ALL");
+  const [focus, setFocus] = useState<string[]>([]);
+  /** The last request came back empty: nothing new to suggest. */
+  const [exhausted, setExhausted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notes, setNotes] = useState<string[]>([]);
@@ -189,6 +188,8 @@ export function TipsWorkspace({ sarvam, isOwner, referenceDate, isDemo }: Props)
         writeSession(data.sessionId);
         setBatches((b) => (data.batch.length ? [data.batch, ...(sid ? b : [])] : sid ? b : []));
         setRemaining(data.remaining);
+        setExhausted(data.batch.length === 0);
+        if (opts.focus) setFocus(opts.focus);
         setNotes(data.feedbackNotes);
         setFb({});
         setShowFeedback(false);
@@ -203,7 +204,6 @@ export function TipsWorkspace({ sarvam, isOwner, referenceDate, isDemo }: Props)
     [sessionId],
   );
 
-  const focusList = (f: Focus) => (f === "ALL" ? [] : [f]);
   const describe = (r: TipsReply | null) =>
     !r ? "Sorry, I could not prepare tips right now." : r.batch.length === 0 ? "No new tips right now. Everything useful is already in your Action Centre." : `Here ${r.batch.length === 1 ? "is 1 tip" : `are ${r.batch.length} tips`}: ${r.batch.map((t, i) => `${i + 1}. ${t.title}`).join(". ")}. ${r.remaining} more available. Each one waits for your approval.`;
 
@@ -211,7 +211,7 @@ export function TipsWorkspace({ sarvam, isOwner, referenceDate, isDemo }: Props)
     const voiceFocus = (r.params.focus ?? []).filter((f) => FAMILY[f]);
     switch (r.intent) {
       case "GET_TIPS":
-        return describe(await request({ fresh: true }));
+        return describe(await request({ fresh: true, focus: [] }));
       case "GET_TIPS_FOR":
         return describe(await request({ fresh: !sessionId, focus: voiceFocus }));
       case "GET_MORE_TIPS":
@@ -235,25 +235,11 @@ export function TipsWorkspace({ sarvam, isOwner, referenceDate, isDemo }: Props)
 
   return (
     <div className="space-y-5">
-      <VoiceBar sarvam={sarvam} onCommand={onCommand} placeholder='Try "koi tips do", "loyal customers ke liye offer", "aur tips batao"' />
+      <VoiceBar sarvam={sarvam} onCommand={onCommand} initialText={initialAsk} placeholder='Try "koi tips do", "loyal customers ke liye offer", "aur tips batao"' />
 
-      <div className="rounded-xl border border-indigo-200 bg-gradient-to-r from-indigo-50/80 via-white to-indigo-50/50 p-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Focus">
-            {FOCUS.map(([v, l]) => (
-              <button key={v} type="button" aria-pressed={focus === v} onClick={() => setFocus(v)} className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${focus === v ? "border-[#4338CA] bg-[#4338CA] text-white" : "border-[#D0D5DD] bg-white text-[#171A23] hover:bg-[#F8F9FA]"}`}>
-                {l}
-              </button>
-            ))}
-          </div>
-          <button type="button" disabled={loading} onClick={() => void request({ fresh: true, focus: focusList(focus) })} className="inline-flex items-center gap-1.5 rounded-lg bg-[#4338CA] px-4 py-2 text-xs font-semibold text-white shadow-xs hover:bg-[#3730A3] disabled:opacity-60">
-            <Sparkles size={14} /> {loading ? "Preparing tips..." : all.length ? "Start over with fresh tips" : "Get tips"}
-          </button>
-        </div>
-        <p className="mt-3 text-[11px] leading-relaxed text-[#525866]">
-          Every number is calculated from your own sales and ledger. AI only writes the wording. Estimates are scenarios, not promises. Nothing is sent to a customer until you approve the exact version{isDemo ? ", and this demo store never sends real messages" : ""}.
-        </p>
-      </div>
+      <p className="text-[11px] leading-relaxed text-[#525866]">
+        Every number is calculated from your own sales and ledger. AI only writes the wording. Estimates are scenarios, not promises. Nothing is sent to a customer until you approve the exact version{isDemo ? ", and this demo store never sends real messages" : ""}.
+      </p>
 
       {error && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">{error}</p>}
 
@@ -265,7 +251,11 @@ export function TipsWorkspace({ sarvam, isOwner, referenceDate, isDemo }: Props)
 
       {!loading && all.length === 0 && !error && (
         <div className="rounded-lg border border-dashed border-[#D0D5DD] bg-[#FAFAFC] px-6 py-10 text-center text-xs text-[#737B8C]">
-          Press <strong>Get tips</strong> or say <em>&quot;koi tips do&quot;</em>. You will get 3 different ideas at a time.
+          {exhausted ? (
+            <>No new tips right now. Everything useful is already in your <Link href="/dashboard/action-centre" className="font-semibold text-[#4338CA] hover:underline">Action Centre</Link>.</>
+          ) : (
+            <>Ask in the chat above, for example <em>&quot;koi tips do&quot;</em> or <em>&quot;festival ke liye offer&quot;</em>. You will get 3 different ideas at a time.</>
+          )}
         </div>
       )}
 
@@ -293,7 +283,7 @@ export function TipsWorkspace({ sarvam, isOwner, referenceDate, isDemo }: Props)
               <button type="button" onClick={() => setShowFeedback((s) => !s)} className="rounded-lg border border-[#D0D5DD] px-3 py-1.5 text-xs font-medium text-[#171A23] hover:bg-[#F8F9FA]">
                 {showFeedback ? "Hide feedback" : "Add feedback"}
               </button>
-              <button type="button" disabled={loading || remaining === 0} onClick={() => void request({ focus: focusList(focus), feedback: fb })} className="inline-flex items-center gap-1.5 rounded-lg bg-[#4338CA] px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-[#3730A3] disabled:opacity-50">
+              <button type="button" disabled={loading || remaining === 0} onClick={() => void request({ focus, feedback: fb })} className="inline-flex items-center gap-1.5 rounded-lg bg-[#4338CA] px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-[#3730A3] disabled:opacity-50">
                 <RefreshCw size={12} /> {loading ? "Preparing..." : "Show more tips"}
               </button>
             </div>

@@ -16,6 +16,7 @@ export const INTENTS = [
   "GET_SALES_SUMMARY",
   "GET_INACTIVE_CUSTOMERS",
   "GET_CUSTOMER_BALANCE",
+  "ASK_DATA",
   "ADD_CREDIT",
   "RECORD_REPAYMENT",
   "REQUEST_REMINDER",
@@ -40,7 +41,7 @@ export type IntentParams = z.infer<typeof intentParamsSchema>;
 
 export const intentSchema = z.object({ intent: z.enum(INTENTS), params: intentParamsSchema.default({}), confidence: z.number().min(0).max(1).default(0.5) });
 
-export type IntentResult = { intent: Intent; params: IntentParams; confidence: number; needsConfirmation: boolean; source: "keywords" | "sarvam" | "none" };
+export type IntentResult = { intent: Intent; params: IntentParams; confidence: number; needsConfirmation: boolean; source: "keywords" | "sarvam" | "none"; answer?: string };
 
 export const NEEDS_CONFIRMATION: Intent[] = ["ADD_CREDIT", "RECORD_REPAYMENT", "REQUEST_REMINDER", "APPROVE_RECOMMENDATION", "CONFIRM"];
 
@@ -110,8 +111,8 @@ export function matchIntent(input: string): IntentResult | null {
   if (/(kitna|kitne|how much|कितना|कितने).{0,25}(udhaar|udhar|baaki|baki|उधार|बाकी|balance|owe)|balance of|(udhaar|उधार).{0,10}(kitna|कितना)/.test(t)) return result("GET_CUSTOMER_BALANCE", { customerName: nameOf(original) });
 
   if (/(kaun|kon|which|कौन).{0,30}(nahi aaye|nahi aa rahe|not (come|visited)|नहीं आए|नहीं आ रहे)|inactive customers?|kaafi (time|din) se nahi/.test(t)) return result("GET_INACTIVE_CUSTOMERS");
-  if (/(sale|sales|bikri|बिक्री|सेल|kamai|कमाई|dhanda|revenue)/.test(t)) {
-    const range = /hafte|week|7 din|हफ्ते/.test(t) ? "7d" : /mahine|month|30 din|महीने/.test(t) ? "30d" : "today";
+  if (/(sale|sales|bikri|bikree|बिक्री|सेल|kamai|kamaai|कमाई|dhanda|dhandha|धंधा|revenue|income|kitna bika|kitna becha|बेचा|बिका)/.test(t)) {
+    const range = /hafte|hafta|week|7 din|हफ्ते|हफ़्ते|सप्ताह/.test(t) ? "7d" : /mahine|mahina|month|30 din|महीने|महीना/.test(t) ? "30d" : "today";
     return result("GET_SALES_SUMMARY", { range });
   }
   return null;
