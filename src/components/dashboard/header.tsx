@@ -58,12 +58,6 @@ export function DashboardHeader({
         </Link>
         <ChevronRight size={13} className="text-[#94A3B8]" />
         <span className="font-semibold text-[#171A23]">{currentTitle}</span>
-
-        {/* Live sync indicator */}
-        <div className="hidden lg:flex items-center gap-1.5 ml-3 pl-3 border-l border-[#E2E4E9] text-[11px] text-[#737B8C]">
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-          <span>Neon DB Active</span>
-        </div>
       </div>
 
       {/* Right: Store switcher, User info, Logout */}

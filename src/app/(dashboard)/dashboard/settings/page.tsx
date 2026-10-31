@@ -45,6 +45,12 @@ export default async function SettingsPage() {
       })
     : null;
 
+  // Real connectivity probe; the badge below reflects this, not a fixed label.
+  const dbOnline = await db.$queryRaw`SELECT 1`.then(
+    () => true,
+    () => false,
+  );
+
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       {/* Header */}
@@ -151,6 +157,11 @@ export default async function SettingsPage() {
           <SettingRow label="Who can see it" value="Only people you add to this shop" />
           <SettingRow label="Numbers" value="Always calculated from your own sales and udhaar records" />
           <SettingRow label="AI" value="Sarvam AI writes messages in your language. It never changes an amount, and nothing is sent without your approval" />
+          <SettingRow
+            label="Connection"
+            value={dbOnline ? "Your records are reachable" : <span className="font-semibold text-rose-700">Cannot reach your records right now</span>}
+            badge={<span className={`h-2 w-2 rounded-full ${dbOnline ? "bg-emerald-500" : "bg-rose-500"}`} />}
+          />
         </dl>
       </Panel>
     </div>

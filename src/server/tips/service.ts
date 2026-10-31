@@ -6,7 +6,7 @@ import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { referenceDateFor } from "@/server/analytics/range";
 import { composeBatch } from "@/server/recommendations/compose";
-import { submitDrafts } from "@/server/recommendations/service";
+import { createApprovedRecommendation, submitDrafts } from "@/server/recommendations/service";
 import { OPEN_STATUSES } from "@/server/recommendations/state";
 import { buildContext } from "./context";
 import { draftFor, factsFor, offerLines } from "./facts";
@@ -14,12 +14,15 @@ import { buildCustomOffer, type CustomOfferInput } from "./custom-offer";
 import { applySignal, parseFeedback } from "./feedback";
 import { applyFreeText } from "./notes";
 import { generateCandidates, selectBatch } from "./rank";
+import { parseStaged, stage, type StagedTip } from "./staged";
 import { emptyFeedback, type Candidate, type TipContext, type TipFamily, type TipFeedback } from "./types";
 
 /**
  * Batched growth tips (credit-saving flow):
  *   first request  → all queries once, all candidates ranked deterministically (0 LLM calls), snapshot stored;
- *   every batch    → top `count` unseen tips, ONE wording call for the whole batch, drafts submitted for approval;
+ *   every batch    → top `count` unseen tips, ONE wording call for the whole batch, drafts STAGED on the session;
+ *                    a tip becomes a recommendation only when the owner approves it (approveTip). Unapproved tips
+ *                    never reach the Action Centre; a rejection is only a note on the session (rejectTip).
  *   "more tips"    → feedback applied to the snapshot (no queries), next batch, again one wording call.
  * LLM calls are counted per session and capped by SARVAM_MAX_CALLS_PER_SESSION; beyond it templates are used silently.
  */
@@ -28,11 +31,10 @@ type Merchant = { id: string; isDemo: boolean; shopName: string };
 type Actor = { userId: string };
 type Fail = { ok: false; error: string; status: number };
 
-export type FeedbackInput = { recommendationId?: string; reason?: DeclineReason; note?: string };
+export type FeedbackInput = { recommendationId?: string; /** A tip key from this session (tips that are not recommendations yet). */ tipKey?: string; reason?: DeclineReason; note?: string };
 export type TipsRequest = { sessionId?: string; count: number; focus?: TipFamily[]; feedback?: FeedbackInput };
 
 export type TipCard = {
-  recommendationId: string;
   key: string;
   family: TipFamily;
   title: string;
@@ -72,7 +74,7 @@ export function summarizeEconomics(e: Record<string, unknown>): EconomicsSummary
 }
 
 /** Tip keys that already have an open recommendation, so the same idea is not proposed twice. */
-async function openTipKeys(merchantId: string): Promise<string[]> {
+export async function openTipKeys(merchantId: string): Promise<string[]> {
   const rows = await db.recommendation.findMany({
     where: { merchantId, status: { in: OPEN_STATUSES } },
     select: { type: true, versions: { orderBy: { version: "desc" }, take: 1, select: { evidence: true, audience: { select: { customerId: true }, take: 1 } } } },
@@ -94,14 +96,16 @@ async function withFeedback(merchantId: string, fb: TipFeedback, input: Feedback
   let next = fb;
   let llmCalls = 0;
   let target: Candidate | undefined;
-  if (input.recommendationId) {
+  if (input.tipKey) target = snapshot.find((c) => c.key === input.tipKey);
+  else if (input.recommendationId) {
     const rec = await db.recommendation.findFirst({ where: { id: input.recommendationId, merchantId }, select: { versions: { orderBy: { version: "desc" }, take: 1, select: { evidence: true } } } });
     const key = (rec?.versions[0]?.evidence as { tip?: { key?: string } } | null)?.tip?.key;
     target = snapshot.find((c) => c.key === key);
   }
-  if (input.reason && !(input.recommendationId && next.appliedRejections.includes(input.recommendationId))) {
+  const feedbackId = input.recommendationId ?? input.tipKey;
+  if (input.reason && !(feedbackId && next.appliedRejections.includes(feedbackId))) {
     next = applySignal(next, input.reason, target);
-    if (input.recommendationId) next = { ...next, appliedRejections: [...next.appliedRejections, input.recommendationId] };
+    if (feedbackId) next = { ...next, appliedRejections: [...next.appliedRejections, feedbackId] };
   }
   if (input.note) {
     const r = await applyFreeText(next, input.note, ctx, llmBudget > 0);
@@ -112,7 +116,7 @@ async function withFeedback(merchantId: string, fb: TipFeedback, input: Feedback
 }
 
 /** Creates a session (first call) or returns the next batch for an existing one. */
-export async function getTips(merchant: Merchant, actor: Actor, req: TipsRequest): Promise<TipsResponse | Fail> {
+export async function getTips(merchant: Merchant, _actor: Actor, req: TipsRequest): Promise<TipsResponse | Fail> {
   const ref = referenceDateFor(merchant);
   const cap = env.SARVAM_MAX_CALLS_PER_SESSION;
   let session = req.sessionId ? await loadSession(merchant.id, req.sessionId) : null;
@@ -134,7 +138,7 @@ export async function getTips(merchant: Merchant, actor: Actor, req: TipsRequest
   }
 
   const ranked = generateCandidates(ctx, feedback);
-  const open = await openTipKeys(merchant.id);
+  const open = [...(await openTipKeys(merchant.id)), ...(ctx.history?.recentKeys ?? []), ...(ctx.history?.rejectedKeys ?? [])];
   const sessionId = session.id;
 
   const claim = await db.$transaction(async (tx) => {
@@ -158,7 +162,8 @@ export async function getTips(merchant: Merchant, actor: Actor, req: TipsRequest
   );
   if (llmCalls) await db.tipSession.update({ where: { id: sessionId }, data: { llmCalls: { increment: llmCalls } } });
   const drafts = claim.batch.map((c, i) => draftFor(c, results[i], facts[i], { isDemo: merchant.isDemo, sessionId }));
-  const ids = await submitDrafts(merchant, actor, drafts);
+  const staged = Object.fromEntries(claim.batch.map((c, i) => [c.key, stage(drafts[i])]));
+  await db.$executeRaw`UPDATE tip_session SET "drafts" = "drafts" || ${JSON.stringify(staged)}::jsonb WHERE "id" = ${sessionId} AND "merchantId" = ${merchant.id}`;
 
   return {
     ok: true,
@@ -167,7 +172,6 @@ export async function getTips(merchant: Merchant, actor: Actor, req: TipsRequest
     llmCalls: claim.llmCalls + llmCalls,
     feedbackNotes: feedback.notes,
     batch: claim.batch.map((c, i) => ({
-      recommendationId: ids[i],
       key: c.key,
       family: c.family,
       title: c.title,
@@ -193,9 +197,56 @@ export async function recordTipFeedback(merchant: Merchant, sessionId: string, i
   const ctx = session.context as unknown as TipContext;
   const r = await withFeedback(merchant.id, parseFeedback(session.feedback), input, ctx, session.candidates as unknown as Candidate[], env.SARVAM_MAX_CALLS_PER_SESSION - session.llmCalls);
   const ranked = generateCandidates(ctx, r.feedback);
-  const { remaining } = selectBatch(ranked, { count: 0, shown: session.shownKeys, open: await openTipKeys(merchant.id) });
+  const { remaining } = selectBatch(ranked, { count: 0, shown: session.shownKeys, open: [...(await openTipKeys(merchant.id)), ...(ctx.history?.recentKeys ?? []), ...(ctx.history?.rejectedKeys ?? [])] });
   await db.tipSession.update({ where: { id: session.id }, data: { feedback: asJson(r.feedback), candidates: asJson(ranked), llmCalls: { increment: r.llmCalls } } });
   return { ok: true, remaining, feedbackNotes: r.feedback.notes };
+}
+
+const lockedDrafts = async (tx: Prisma.TransactionClient, merchantId: string, sessionId: string) => {
+  const rows = await tx.$queryRaw<{ drafts: unknown }[]>`SELECT "drafts" FROM tip_session WHERE "id" = ${sessionId} AND "merchantId" = ${merchantId} FOR UPDATE`;
+  return rows[0] ? parseStaged(rows[0].drafts) : null;
+};
+const saveEntry = (tx: Prisma.TransactionClient, sessionId: string, key: string, entry: StagedTip) =>
+  tx.$executeRaw`UPDATE tip_session SET "drafts" = jsonb_set("drafts", ARRAY[${key}]::text[], ${JSON.stringify(entry)}::jsonb), "updatedAt" = now() WHERE "id" = ${sessionId}`;
+
+/**
+ * The owner approves a tip shown on the tips screen. This is the moment it becomes a recommendation: created and approved
+ * in one transaction (coupon codes included), so it is never PENDING_APPROVAL. Approving twice returns the same recommendation.
+ */
+export async function approveTip(merchant: Merchant, actor: Actor, input: { sessionId: string; key: string }): Promise<{ ok: true; recommendationId: string; duplicate: boolean } | Fail> {
+  return db.$transaction(async (tx): Promise<{ ok: true; recommendationId: string; duplicate: boolean } | Fail> => {
+    const staged = await lockedDrafts(tx, merchant.id, input.sessionId);
+    if (!staged) return fail("This tips session was not found. Ask for tips again.", 404);
+    const entry = staged[input.key];
+    if (!entry) return fail("This tip is no longer available. Ask for tips again.", 404);
+    if (entry.status === "APPROVED" && entry.recommendationId) return { ok: true, recommendationId: entry.recommendationId, duplicate: true };
+    if (entry.status === "REJECTED") return fail("You already rejected this tip.", 409);
+    const active = await tx.recommendation.findFirst({ where: { merchantId: merchant.id, status: { in: OPEN_STATUSES }, versions: { some: { evidence: { path: ["tip", "key"], equals: input.key } } } }, select: { id: true } });
+    if (active) return fail("This tip is already active in your Action Centre.", 409);
+    const recommendationId = await createApprovedRecommendation(tx, merchant, actor, entry.draft);
+    await saveEntry(tx, input.sessionId, input.key, { ...entry, status: "APPROVED", recommendationId, decidedAt: new Date().toISOString() });
+    return { ok: true, recommendationId, duplicate: false };
+  }, { timeout: 20_000 });
+}
+
+/**
+ * The owner rejects a tip shown on the tips screen. No recommendation is created. The reason is kept on the session (so the
+ * tip is not offered again for a while) and applied as feedback to the next batch.
+ */
+export async function rejectTip(merchant: Merchant, input: { sessionId: string; key: string; reason: DeclineReason; note?: string }): Promise<{ ok: true; feedbackNotes: string[] } | Fail> {
+  if (input.reason === "OTHER" && !input.note) return fail("Please explain the reason.", 422);
+  const err = await db.$transaction(async (tx): Promise<Fail | null> => {
+    const staged = await lockedDrafts(tx, merchant.id, input.sessionId);
+    if (!staged) return fail("This tips session was not found. Ask for tips again.", 404);
+    const entry = staged[input.key];
+    if (!entry) return fail("This tip is no longer available. Ask for tips again.", 404);
+    if (entry.status === "APPROVED") return fail("You already approved this tip.", 409);
+    if (entry.status !== "REJECTED") await saveEntry(tx, input.sessionId, input.key, { ...entry, status: "REJECTED", reason: input.reason, note: input.note ?? null, decidedAt: new Date().toISOString() });
+    return null;
+  });
+  if (err) return err;
+  const r = await recordTipFeedback(merchant, input.sessionId, { tipKey: input.key, reason: input.reason, note: input.note });
+  return r.ok ? { ok: true, feedbackNotes: r.feedbackNotes } : r;
 }
 
 /** After a rejection in the Action Centre, feeds the reason back into the tip's session (best effort). */

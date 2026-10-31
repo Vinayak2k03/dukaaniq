@@ -182,7 +182,7 @@ export default async function CustomerLedgerPage({
                         {formatPaise(l.runningBalancePaise)}
                       </td>
                       <td className="whitespace-nowrap py-3 pr-4 text-[#525866]">
-                        {l.dueYmd ? formatLocalDate(l.dueYmd) : "&mdash;"}
+                        {l.dueYmd ? formatLocalDate(l.dueYmd) : "—"}
                       </td>
                       <td className="py-3 text-[#737B8C]">
                         {[
@@ -193,7 +193,7 @@ export default async function CustomerLedgerPage({
                           l.imported ? "Dataset seed entry" : null,
                         ]
                           .filter(Boolean)
-                          .join(" &middot; ") || "&mdash;"}
+                          .join(" · ") || "—"}
                       </td>
                     </tr>
                   );

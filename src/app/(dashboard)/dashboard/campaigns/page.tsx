@@ -8,6 +8,7 @@ import { requireSession } from "@/server/auth/session";
 import { getCurrentMembership } from "@/server/merchant/access";
 import { Badge } from "@/components/ui/badge";
 import { Panel, EmptyState } from "@/components/dashboard/panel";
+import { TipImpactPanel } from "./tip-impact";
 import { KpiCard } from "@/components/dashboard/kpi-card";
 import { Tag, Sparkles, Percent, Wallet, Users, ArrowRight, CheckCircle2, Plus } from "@/components/ui/icons";
 
@@ -38,11 +39,11 @@ export default async function CampaignsPage() {
 
     // Known campaign configurations from dataset
     const descriptions: Record<string, { type: string; minOrder: string; validity: string; segment: string }> = {
-      WELCOME5: { type: "5% Welcome Off", minOrder: "₹100", validity: "Active &middot; Perpetual", segment: "First-time Shoppers" },
-      LOYAL15: { type: "₹15 Flat Off", minOrder: "₹250", validity: "Active &middot; Recurring", segment: "High-Frequency Shoppers" },
-      GROCERY10: { type: "10% Category Off", minOrder: "₹300", validity: "Active &middot; Weekly", segment: "Kirana Basket Shoppers" },
-      WEEKEND5: { type: "5% Weekend Boost", minOrder: "₹150", validity: "Active &middot; Sat-Sun", segment: "All Store Walk-ins" },
-      SAVE20: { type: "₹20 Value Off", minOrder: "₹500", validity: "Active &middot; Monthly", segment: "High-Value Baskets" },
+      WELCOME5: { type: "5% Welcome Off", minOrder: "₹100", validity: "Active · Perpetual", segment: "First-time Shoppers" },
+      LOYAL15: { type: "₹15 Flat Off", minOrder: "₹250", validity: "Active · Recurring", segment: "High-Frequency Shoppers" },
+      GROCERY10: { type: "10% Category Off", minOrder: "₹300", validity: "Active · Weekly", segment: "Kirana Basket Shoppers" },
+      WEEKEND5: { type: "5% Weekend Boost", minOrder: "₹150", validity: "Active · Sat-Sun", segment: "All Store Walk-ins" },
+      SAVE20: { type: "₹20 Value Off", minOrder: "₹500", validity: "Active · Monthly", segment: "High-Value Baskets" },
     };
 
     const meta = descriptions[code] ?? {
@@ -161,6 +162,8 @@ export default async function CampaignsPage() {
           icon={<Sparkles size={16} />}
         />
       </div>
+
+      <TipImpactPanel merchantId={merchant.id} />
 
       {/* Codes issued by DukaanIQ on approval */}
       <Panel

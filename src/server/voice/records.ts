@@ -6,7 +6,8 @@ import type { VoiceLanguage } from "@/lib/validation/tips";
 import { listCatalog } from "@/server/records/service";
 import { billTotals } from "@/server/records/math";
 import { sarvamEnabled, sarvamJson } from "@/server/sarvam/client";
-import { nameSimilarity, type RecordIntent } from "./intent";
+import { nameVariants, productSimilarity } from "./aliases";
+import type { RecordIntent } from "./intent";
 import { parseCustomerText, parseProductText, parseSaleText, paymentOf } from "./records-parse";
 
 /**
@@ -43,18 +44,24 @@ const PROMPT: Record<RecordIntent, string> = {
   ADD_CUSTOMER: `${COMMON}\nThe owner is adding a new customer. Output {"name":"...","phone":"..."}. phone only if digits were said.`,
 };
 
-async function extract<T>(intent: RecordIntent, text: string, shape: z.ZodType<T>): Promise<T | null> {
+/** The shop's own product names, so the model can spell "शुगर" / "chini" as the catalog's "Sugar". Capped to keep the call small. */
+const catalogHint = (catalog: CatalogItem[]) =>
+  catalog.length
+    ? `\nThe shop's products: ${catalog.slice(0, 150).map((p) => p.name).join(", ")}.\nIf a spoken product is the same thing as one of these (any language or spelling: sugar = chini = cheeni = शुगर = चीनी = शक्कर), use that exact product name. Otherwise copy the spoken name.`
+    : "";
+
+async function extract<T>(intent: RecordIntent, text: string, shape: z.ZodType<T>, catalog: CatalogItem[] = []): Promise<T | null> {
   if (!sarvamEnabled()) return null;
-  const parsed = shape.safeParse(await sarvamJson(PROMPT[intent], `Command: ${text.slice(0, 300)}`, 400).catch(() => null));
+  const parsed = shape.safeParse(await sarvamJson(PROMPT[intent] + catalogHint(catalog), `Command: ${text.slice(0, 300)}`, 400).catch(() => null));
   return parsed.success ? parsed.data : null;
 }
 
-/** Catalog matches for a spoken product name: names containing it first, then close spellings. */
+/** Catalog matches for a spoken product name: names containing it (or an alias of it) first, then close spellings. */
 function productOptions(heard: string, catalog: CatalogItem[]): CatalogItem[] {
-  const h = heard.toLowerCase();
-  const contains = catalog.filter((p) => p.name.toLowerCase().includes(h));
+  const variants = nameVariants(heard);
+  const contains = catalog.filter((p) => variants.some((v) => p.name.toLowerCase().includes(v)));
   const fuzzy = catalog
-    .map((p) => ({ p, score: nameSimilarity(heard, p.name) }))
+    .map((p) => ({ p, score: productSimilarity(heard, p.name) }))
     .filter((x) => x.score >= 0.72)
     .sort((a, b) => b.score - a.score)
     .map((x) => x.p);
@@ -125,15 +132,15 @@ export async function draftRecord(
     return { draft, answer: say.customer(matches[0]?.name ?? null) };
   }
 
-  const ai = await extract(intent, text, saleShape);
+  const catalog = await listCatalog(merchantId);
+  const ai = await extract(intent, text, saleShape, catalog);
   const rule = parseSaleText(text);
   const heardLines = ai?.items.length
     ? ai.items.map((i) => ({ heard: i.name, quantity: keep(i.quantity, true) ?? 1, unitPaise: keep(i.unitRupees) !== undefined ? Math.round(i.unitRupees! * 100) : undefined }))
     : rule.lines;
-  const catalog = await listCatalog(merchantId);
   const lines = heardLines.map((l) => {
     const options = productOptions(l.heard, catalog);
-    const best = options[0] && (options.length === 1 || nameSimilarity(l.heard, options[0].name) >= 0.9) ? options[0] : undefined;
+    const best = options[0] && (options.length === 1 || productSimilarity(l.heard, options[0].name) >= 0.9) ? options[0] : undefined;
     return { heard: l.heard, quantity: l.quantity, options, productId: best?.id, unitPaise: l.unitPaise ?? best?.pricePaise };
   });
   const customerHeard = ai?.customerName ?? rule.customerName;

@@ -4,8 +4,8 @@ import { getTips } from "@/server/tips/service";
 
 /**
  * POST { sessionId?, count?: 1..5, focus?: TipFamily[], feedback?: { recommendationId?, reason?, note? } }
- * Without a sessionId it starts a session; with one it returns the next batch. Each batch becomes
- * PENDING_APPROVAL recommendations in the Action Centre; nothing reaches a customer without approval.
+ * Without a sessionId it starts a session; with one it returns the next batch. Tips are only suggestions held on the
+ * session: nothing reaches the Action Centre until the owner approves a tip (POST /api/tips/approve).
  */
 export async function POST(request: Request) {
   const w = await jsonWrite(request, tipsRequestSchema, { ownerOnly: true });

@@ -3,7 +3,7 @@ import { loyaltyCandidates } from "./generators/loyalty";
 import { bundleCandidates, reminderCandidates, slowMovingCandidates, winbackCandidates } from "./generators/others";
 import type { Built } from "./generators/shared";
 import { offPeakCandidates, peakCandidates } from "./generators/timing";
-import type { Candidate, TipContext, TipFamily, TipFeedback } from "./types";
+import type { Candidate, TipContext, TipFamily, TipFeedback, TipHistory } from "./types";
 
 /** Merchant priorities first (loyalty, festive, low hours), then the extra families. */
 export const FAMILY_WEIGHT: Record<TipFamily, number> = { LOYALTY: 100, FESTIVE: 90, OFF_PEAK: 80, CREDIT_REMINDER: 70, WINBACK: 65, BUNDLE: 60, SLOW_MOVING: 50, PEAK_TIMING: 45 };
@@ -19,10 +19,31 @@ const GENERATORS: Record<TipFamily, (ctx: TipContext, fb: TipFeedback) => Built[
   PEAK_TIMING: peakCandidates,
 };
 
-const scoreOf = (b: Built, fb: TipFeedback) =>
+/**
+ * Learning from what the merchant approved: each earlier approval of a family adds up to +20 in total, and measured
+ * sales that rose (or fell) by 5% or more after those approvals add (or remove) 10. Only families they approved move.
+ */
+export function historyBoost(family: TipFamily, h: TipHistory | undefined): number {
+  const f = h?.families[family];
+  if (!f || f.approved === 0) return 0;
+  const measured = f.avgSalesChangePct === null ? 0 : f.avgSalesChangePct >= 5 ? 10 : f.avgSalesChangePct <= -5 ? -10 : 0;
+  return Math.min(20, f.approved * 6) + measured;
+}
+
+/** A plain sentence about why history moved a tip, or null. Restated as evidence in the tip's explanation. */
+export function historyNote(family: TipFamily, h: TipHistory | undefined): string | null {
+  const f = h?.families[family];
+  if (!f || f.approved === 0) return null;
+  const label = family.toLowerCase().replace("_", " ");
+  const moved = f.avgSalesChangePct === null ? "" : `; sales per day were ${f.avgSalesChangePct >= 0 ? "up" : "down"} ${Math.abs(f.avgSalesChangePct)}% in the days after`;
+  return `You approved ${f.approved} ${label} ${f.approved === 1 ? "tip" : "tips"} before${moved}.`;
+}
+
+const scoreOf = (b: Built, fb: TipFeedback, h: TipHistory | undefined) =>
   Math.round(
     (FAMILY_WEIGHT[b.family] +
       b.quality +
+      historyBoost(b.family, h) +
       (fb.preferFamilies.includes(b.family) ? 30 : 0) -
       (fb.demoteFamilies.includes(b.family) ? 30 : 0) +
       (fb.preferLargeAudience ? Math.min(10, b.audience.length / 10) : 0)) *
@@ -36,7 +57,8 @@ export function generateCandidates(ctx: TipContext, fb: TipFeedback, families: r
     .flatMap((f) => GENERATORS[f](ctx, fb))
     .map((b): Candidate => {
       const { quality, ...rest } = b;
-      return { ...rest, score: scoreOf({ ...rest, quality }, fb), changes: [...fb.notes] };
+      const note = historyNote(b.family, ctx.history);
+      return { ...rest, whyFacts: note ? [...rest.whyFacts, note] : rest.whyFacts, score: scoreOf({ ...rest, quality }, fb, ctx.history), changes: [...fb.notes] };
     })
     .sort((a, b) => b.score - a.score || a.key.localeCompare(b.key));
 }

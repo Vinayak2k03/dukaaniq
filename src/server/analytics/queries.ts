@@ -27,17 +27,29 @@ export type Summary = {
   grossProfitPaise: number;
 };
 
-export async function getSummary(merchantId: string, r: ResolvedRange): Promise<Summary> {
+/**
+ * With a category filter, sales figures are rebuilt from the matching item lines (a sale's line totals add up to its
+ * net amount, so this is the category's share). Orders/customers count each sale or customer once.
+ */
+const categoryJoin = (category?: string) =>
+  category
+    ? Prisma.sql`JOIN sale_item ci ON ci."saleId" = s."id" JOIN product cp ON cp."id" = ci."productId" AND cp."category" = ${category}`
+    : Prisma.empty;
+const salesAmount = (category?: string) => (category ? Prisma.sql`ci."lineTotal"` : Prisma.sql`s."netAmount"`);
+const orderCount = (category?: string) => (category ? Prisma.sql`COUNT(DISTINCT s."id")` : Prisma.sql`COUNT(s."id")`);
+
+export async function getSummary(merchantId: string, r: ResolvedRange, category?: string): Promise<Summary> {
+  const catFilter = category ? Prisma.sql`AND p."category" = ${category}` : Prisma.empty;
   const [sales, profit] = await Promise.all([
     db.$queryRaw<{ sales: bigint; orders: bigint; customers: bigint }[]>`
-      SELECT COALESCE(ROUND(SUM(s."netAmount") * 100), 0)::bigint AS sales,
-             COUNT(*)::bigint AS orders,
+      SELECT COALESCE(ROUND(SUM(${salesAmount(category)}) * 100), 0)::bigint AS sales,
+             ${orderCount(category)}::bigint AS orders,
              COUNT(DISTINCT s."customerId")::bigint AS customers
-      FROM sale s WHERE ${paidInRange(merchantId, r)}`,
+      FROM sale s ${categoryJoin(category)} WHERE ${paidInRange(merchantId, r)}`,
     db.$queryRaw<{ v: bigint }[]>`
       SELECT COALESCE(ROUND(SUM(i."lineTotal" - i."lineCost") * 100), 0)::bigint AS v
-      FROM sale_item i JOIN sale s ON s."id" = i."saleId"
-      WHERE ${paidInRange(merchantId, r)}`,
+      FROM sale_item i JOIN sale s ON s."id" = i."saleId" JOIN product p ON p."id" = i."productId"
+      WHERE ${paidInRange(merchantId, r)} ${catFilter}`,
   ]);
   const netSalesPaise = num(sales[0]?.sales);
   const orders = num(sales[0]?.orders);
@@ -52,7 +64,7 @@ export async function getSummary(merchantId: string, r: ResolvedRange): Promise<
 
 export type TrendPoint = { label: string; netSalesPaise: number; orders: number };
 
-export async function getSalesTrend(merchantId: string, r: ResolvedRange): Promise<TrendPoint[]> {
+export async function getSalesTrend(merchantId: string, r: ResolvedRange, category?: string): Promise<TrendPoint[]> {
   const g = Prisma.raw(`'${r.granularity}'`); // from a fixed enum, never user input
   const interval = Prisma.raw(`interval '1 ${r.granularity}'`);
   const rows = await db.$queryRaw<{ label: string; sales: bigint; orders: bigint }[]>`
@@ -62,13 +74,15 @@ export async function getSalesTrend(merchantId: string, r: ResolvedRange): Promi
         ${r.toDate}::date::timestamp,
         ${interval}
       ) AS bucket
+    ), f AS (
+      SELECT s."id" AS sid, s."saleDate", ${salesAmount(category)} AS amt
+      FROM sale s ${categoryJoin(category)} WHERE ${paidInRange(merchantId, r)}
     )
     SELECT to_char(b.bucket, 'YYYY-MM-DD') AS label,
-           COALESCE(ROUND(SUM(s."netAmount") * 100), 0)::bigint AS sales,
-           COUNT(s."id")::bigint AS orders
-    FROM b LEFT JOIN sale s
-      ON date_trunc(${g}, (s."saleDate" AT TIME ZONE 'UTC') AT TIME ZONE ${LOCAL}) = b.bucket
-     AND ${paidInRange(merchantId, r)}
+           COALESCE(ROUND(SUM(f.amt) * 100), 0)::bigint AS sales,
+           COUNT(DISTINCT f.sid)::bigint AS orders
+    FROM b LEFT JOIN f
+      ON date_trunc(${g}, (f."saleDate" AT TIME ZONE 'UTC') AT TIME ZONE ${LOCAL}) = b.bucket
     GROUP BY b.bucket ORDER BY b.bucket`;
   return rows.map((x) => ({ label: x.label, netSalesPaise: num(x.sales), orders: num(x.orders) }));
 }
@@ -118,11 +132,11 @@ export async function getCategories(merchantId: string): Promise<string[]> {
 
 export type PaymentMix = { method: string; orders: number; netSalesPaise: number };
 
-export async function getPaymentMix(merchantId: string, r: ResolvedRange): Promise<PaymentMix[]> {
+export async function getPaymentMix(merchantId: string, r: ResolvedRange, category?: string): Promise<PaymentMix[]> {
   const rows = await db.$queryRaw<{ method: string; orders: bigint; sales: bigint }[]>`
-    SELECT s."paymentMethod"::text AS method, COUNT(*)::bigint AS orders,
-           COALESCE(ROUND(SUM(s."netAmount") * 100), 0)::bigint AS sales
-    FROM sale s WHERE ${paidInRange(merchantId, r)}
+    SELECT s."paymentMethod"::text AS method, ${orderCount(category)}::bigint AS orders,
+           COALESCE(ROUND(SUM(${salesAmount(category)}) * 100), 0)::bigint AS sales
+    FROM sale s ${categoryJoin(category)} WHERE ${paidInRange(merchantId, r)}
     GROUP BY s."paymentMethod" ORDER BY sales DESC`;
   return rows.map((x) => ({ method: x.method, orders: num(x.orders), netSalesPaise: num(x.sales) }));
 }
@@ -175,9 +189,13 @@ export type RecentSale = {
   status: string;
 };
 
-export async function getRecentSales(merchantId: string, r: ResolvedRange, take = 10): Promise<RecentSale[]> {
+export async function getRecentSales(merchantId: string, r: ResolvedRange, take = 10, category?: string): Promise<RecentSale[]> {
   const rows = await db.sale.findMany({
-    where: { merchantId, saleDate: { gte: r.startUtc, lt: r.endExclusiveUtc } },
+    where: {
+      merchantId,
+      saleDate: { gte: r.startUtc, lt: r.endExclusiveUtc },
+      ...(category ? { items: { some: { product: { category } } } } : {}),
+    },
     orderBy: { saleDate: "desc" },
     take,
     select: {

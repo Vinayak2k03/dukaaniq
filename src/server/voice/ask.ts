@@ -270,7 +270,7 @@ const SYSTEM = (language: VoiceLanguage) =>
 
 export async function askData(merchant: Merchant, question: string, language: VoiceLanguage, history: Turn[], customerId?: string): Promise<string | null> {
   const { facts } = await factSheet(merchant, question, history.at(-1)?.user ?? "", customerId);
-  const convo = history.slice(-3).map((t) => `Owner: ${t.user}\nYou: ${t.assistant}`).join("\n");
+  const convo = history.slice(-6).map((t) => `Owner: ${t.user}\nYou: ${t.assistant}`).join("\n").slice(-2000);
   const reply = await sarvamChat({
     model: env.SARVAM_CHAT_MODEL,
     system: `${SYSTEM(language)}\n\nFACTS:\n${facts}`,

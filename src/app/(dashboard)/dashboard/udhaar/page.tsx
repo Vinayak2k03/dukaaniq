@@ -259,7 +259,7 @@ export default async function UdhaarPage({ searchParams }: PageProps<"/dashboard
                           </td>
 
                           <td className="whitespace-nowrap py-3 pr-4 text-[#525866]">
-                            {r.account.nextDueDate ? formatLocalDate(r.account.nextDueDate) : "&mdash;"}
+                            {r.account.nextDueDate ? formatLocalDate(r.account.nextDueDate) : "—"}
                           </td>
 
                           <td className="py-3 pr-4">
