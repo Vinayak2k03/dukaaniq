@@ -1,12 +1,12 @@
 export const ENTRY_TYPE_LABEL = {
-  CREDIT_GIVEN: "Credit given",
+  CREDIT_GIVEN: "Udhaar given",
   REPAYMENT_RECEIVED: "Repayment",
   ADJUSTMENT_INCREASE: "Correction (adds to balance)",
   ADJUSTMENT_DECREASE: "Correction (reduces balance)",
 } as const;
 
 export const STATUS_LABEL = {
-  NO_CREDIT: "No credit",
+  NO_CREDIT: "No udhaar",
   SETTLED: "Settled",
   OVERDUE: "Overdue",
   DUE_TODAY: "Due today",

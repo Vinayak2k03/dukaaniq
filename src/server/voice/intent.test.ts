@@ -144,3 +144,12 @@ test("generic words are not customer names", () => {
   assert.equal(missingSlot(matchIntent("ek customer ko reminder bhejna hai")!), "customer");
   assert.equal(matchIntent("Ramesh ji ko reminder bhejna hai")?.params.customerName, "Ramesh");
 });
+
+test("English repayment with the customer as the subject", () => {
+  const r = matchIntent("Riyansh Joshi has paid 80");
+  assert.equal(r?.intent, "RECORD_REPAYMENT");
+  assert.equal(r?.params.customerName, "Riyansh Joshi");
+  assert.equal(r?.params.amountPaise, 8000);
+  assert.equal(matchIntent("Rahul paid 500")?.params.customerName, "Rahul");
+  assert.equal(matchIntent("customer has paid 500")?.params.customerName, undefined);
+});

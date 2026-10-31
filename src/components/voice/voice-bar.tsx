@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type KeyboardEvent } from "react";
+import { ledgerHref } from "@/lib/links";
 import { Mic, Volume } from "@/components/ui/icons";
 import { useVoice, type VoiceLanguage } from "./use-voice";
 import { VoiceWave } from "./voice-wave";
@@ -198,7 +199,7 @@ export function VoiceBar({ sarvam, placeholder, initialText, examples, onCommand
     if (act.kind === "CREATE_OFFER") return prepareOffer(act);
     const ledger = act.kind === "ADD_CREDIT" || act.kind === "RECORD_REPAYMENT";
     if (ledger && (!act.amountPaise || act.amountPaise <= 0)) {
-      window.location.assign(`/dashboard/udhaar/${act.customerId}`);
+      window.location.assign(ledgerHref(act.customerId, { intent: act.kind === "ADD_CREDIT" ? "add" : "repay" }));
       return;
     }
     setBusy(true);
@@ -210,12 +211,12 @@ export function VoiceBar({ sarvam, placeholder, initialText, examples, onCommand
         const res = await fetch("/api/credit/entries", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ customerId: act.customerId, type: act.kind === "ADD_CREDIT" ? "CREDIT_GIVEN" : "REPAYMENT_RECEIVED", amount: act.amountPaise / 100, idempotencyKey: newKey() }),
+          body: JSON.stringify({ customerId: act.customerId, type: act.kind === "ADD_CREDIT" ? "CREDIT_GIVEN" : "REPAYMENT_RECEIVED", amount: act.amountPaise / 100, ...(act.kind === "RECORD_REPAYMENT" ? { paymentMethod: "CASH" } : {}), idempotencyKey: newKey() }),
         });
         const data = (await res.json()) as { error?: string };
         if (res.ok) {
-          finish(true, act.kind === "ADD_CREDIT" ? `Added ${amount} credit to ${act.customerName}'s account.` : `Recorded ${amount} repayment from ${act.customerName}.`);
-          setActionLink({ href: `/dashboard/udhaar/${act.customerId}`, label: "Open ledger" });
+          finish(true, act.kind === "ADD_CREDIT" ? `Added ${amount} udhaar to ${act.customerName}'s account.` : `Recorded ${amount} repayment from ${act.customerName}.`);
+          setActionLink({ href: ledgerHref(act.customerId), label: "Open ledger" });
         } else finish(false, data.error ?? "Could not save this entry.");
       } else {
         const res = await fetch(`/api/credit/customers/${encodeURIComponent(act.customerId)}/reminder`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { ledgerHref } from "@/lib/links";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
@@ -159,11 +160,23 @@ export default async function CustomerDetailPage({
           <div className="flex flex-wrap items-start gap-2.5">
             <EditProfile customer={{ id: customer.id, displayName: customer.displayName, phone: customer.phone, preferredLanguage: customer.preferredLanguage }} />
             <Link
-              href={`/dashboard/udhaar/${customer.id}`}
+              href={ledgerHref(customer.id, { intent: "add" })}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[#4338CA] px-3.5 py-2 text-xs font-semibold text-white shadow-xs hover:bg-[#3730A3] transition-colors"
+            >
+              <BookMarked size={14} />
+              <span>Add Udhaar</span>
+            </Link>
+            <Link
+              href={ledgerHref(customer.id, { intent: "repay" })}
               className="inline-flex items-center gap-1.5 rounded-lg border border-[#D0D5DD] bg-white px-3.5 py-2 text-xs font-semibold text-[#171A23] shadow-xs hover:bg-[#F8F9FA] transition-colors"
             >
-              <BookMarked size={14} className="text-[#4338CA]" />
-              <span>Credit Ledger</span>
+              <span>Record Repayment</span>
+            </Link>
+            <Link
+              href={ledgerHref(customer.id)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[#D0D5DD] bg-white px-3.5 py-2 text-xs font-semibold text-[#171A23] shadow-xs hover:bg-[#F8F9FA] transition-colors"
+            >
+              <span>Udhaar Ledger</span>
             </Link>
           </div>
         </div>
@@ -307,11 +320,11 @@ export default async function CustomerDetailPage({
       {/* Credit & Udhaar Activity */}
       {customer.creditEntries.length > 0 && (
         <Panel
-          title={`Credit Ledger Log (${customer.creditEntries.length} entries)`}
+          title={`Udhaar Ledger Log (${customer.creditEntries.length} entries)`}
           subtitle="Udhaar entries for this customer"
           action={
             <Link
-              href={`/dashboard/udhaar/${customer.id}`}
+              href={ledgerHref(customer.id)}
               className="text-xs font-semibold text-[#4338CA] hover:underline"
             >
               Open full ledger &rarr;

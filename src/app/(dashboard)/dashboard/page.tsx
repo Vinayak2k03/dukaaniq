@@ -27,6 +27,7 @@ import { requireSession } from "@/server/auth/session";
 import { getCurrentMembership } from "@/server/merchant/access";
 import { listRecommendations } from "@/server/recommendations/service";
 import { HomeActions, type HomeFacts } from "@/components/dashboard/home-actions";
+import { env } from "@/lib/env";
 import { getSummary } from "@/server/analytics/queries";
 import { resolveRange } from "@/server/analytics/range";
 import { listAccounts, summarize } from "@/server/credit/service";
@@ -179,7 +180,7 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
         </div>
       </section>
 
-      {homeFacts ? <HomeActions facts={homeFacts} /> : null}
+      {homeFacts ? <HomeActions facts={homeFacts} sarvam={Boolean(env.SARVAM_API_KEY)} referenceDate={referenceDate} /> : null}
 
       <h2 className="pt-2 text-sm font-bold text-[#171A23]">Your business numbers</h2>
 
