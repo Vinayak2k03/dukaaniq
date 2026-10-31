@@ -90,6 +90,8 @@ type CouponArgs = {
   /** Fixed dates (festivals); otherwise `days` from tomorrow. */
   window?: { validFrom: string; validTill: string };
   codeMode: "UNIQUE_PER_CUSTOMER" | "SHARED";
+  /** A discount the merchant asked for by name. Skips the ladder but not the margin floor: products that cannot carry it are excluded. */
+  exactPct?: number;
 };
 
 /**
@@ -102,7 +104,7 @@ export function buildCoupon(ctx: TipContext, fb: TipFeedback, a: CouponArgs) {
   if (inScope.length === 0 || a.audience.length === 0) return null;
   const costRate = costRateFor(inScope);
   const basketAllowed = maxDiscountPct(10_000, Math.round(costRate * 10_000), ctx.minMarginPct);
-  const pct = pickDiscountPct(basketAllowed, Math.min(a.ceilingPct, fb.maxDiscountPct ?? Infinity));
+  const pct = a.exactPct ?? pickDiscountPct(basketAllowed, Math.min(a.ceilingPct, fb.maxDiscountPct ?? Infinity));
   if (pct === null) return null;
   const eligible = productsAboveFloor(inScope, pct, ctx.minMarginPct);
   if (eligible.length === 0) return null;

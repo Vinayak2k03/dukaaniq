@@ -2,6 +2,8 @@
 
 import type { IntentResponse, VoiceBarResult } from "./voice-bar";
 
+const AUDIENCE_TEXT = { LOYAL: "loyal customers", INACTIVE: "customers who stopped coming", COOLING: "customers who have not visited in 2 to 4 weeks", ACTIVE: "active customers", ALL: "all customers" } as const;
+
 const rupees = (paise: number) => `₹${(paise / 100).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
 
 /**
@@ -26,6 +28,15 @@ export async function answerInfoIntent(r: IntentResponse, referenceDate: string)
       const d = (await res.json()) as { rule: string; customers: { name: string; daysSinceLastPurchase: number }[] };
       if (d.customers.length === 0) return `No inactive customers (${d.rule.toLowerCase()}).`;
       return `${d.customers.length} customers have not bought for over 30 days (${d.rule.toLowerCase()}). Longest away: ${d.customers.slice(0, 5).map((c) => `${c.name} (${c.daysSinceLastPurchase} days)`).join(", ")}.`;
+    }
+    case "CREATE_OFFER": {
+      const { discountPct, audience } = r.params;
+      if (!discountPct || !audience) return "Tell me how much discount and for which customers, for example \"25% off for loyal customers\".";
+      const who = AUDIENCE_TEXT[audience];
+      return {
+        text: `Ready to prepare ${discountPct}% off for ${who}. Click below to confirm. It is only a proposal: it keeps your minimum margin, and nothing is sent or created until you approve the exact message in Action Centre.`,
+        actions: [{ label: `Prepare ${discountPct}% off for ${who}`, kind: "CREATE_OFFER" as const, customerId: "", customerName: who, amountPaise: 0, discountPct, audience }],
+      };
     }
     case "GET_CUSTOMER_BALANCE":
     case "ADD_CREDIT":

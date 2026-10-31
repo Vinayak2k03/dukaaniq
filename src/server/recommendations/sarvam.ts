@@ -32,6 +32,7 @@ const KIND_BRIEF: Record<MessageFacts["kind"], string> = {
   LOYALTY_CREDIT: "telling a trusted customer they can now buy on udhaar (credit) up to a limit",
   FESTIVE: "a festival greeting with an offer",
   OFF_PEAK: "a happy-hour offer valid only in a specific weekday time window",
+  OFFER: "a special discount offer chosen by the shop owner",
   WINBACK: "a 'we miss you' offer for a customer who has not visited for a while",
   BUNDLE: "a combo offer on products often bought together",
 };

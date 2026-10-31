@@ -10,6 +10,7 @@ import { submitDrafts } from "@/server/recommendations/service";
 import { OPEN_STATUSES } from "@/server/recommendations/state";
 import { buildContext } from "./context";
 import { draftFor, factsFor, offerLines } from "./facts";
+import { buildCustomOffer, type CustomOfferInput } from "./custom-offer";
 import { applySignal, parseFeedback } from "./feedback";
 import { applyFreeText } from "./notes";
 import { generateCandidates, selectBatch } from "./rank";
@@ -203,4 +204,23 @@ export async function feedRejectionToSession(merchant: Merchant, recommendationI
   const sessionId = (rec?.versions[0]?.evidence as { tip?: { sessionId?: string | null } } | null)?.tip?.sessionId;
   if (!sessionId) return;
   await recordTipFeedback(merchant, sessionId, { recommendationId, reason, note }).catch((e) => console.error("tips: could not record rejection feedback:", e));
+}
+
+/**
+ * One offer the owner asked for by name (voice: "25% off for loyal customers"). Built with the same margin floor and
+ * audience rules as every tip, worded in one call, and saved as a PENDING_APPROVAL proposal. Nothing is sent or created
+ * until the owner approves it in the Action Centre.
+ */
+export async function createCustomOffer(merchant: Merchant, actor: Actor, input: CustomOfferInput): Promise<{ ok: true; recommendationId: string; title: string; audienceSize: number; duplicate: boolean } | Fail> {
+  const ref = referenceDateFor(merchant);
+  const ctx = await buildContext(merchant, ref, randomUUID());
+  const built = buildCustomOffer(ctx, input);
+  if (!built.ok) return fail(built.error, 422);
+  const c = built.candidate;
+  const open = await db.recommendation.findFirst({ where: { merchantId: merchant.id, status: { in: OPEN_STATUSES }, versions: { some: { evidence: { path: ["tip", "key"], equals: c.key } } } }, select: { id: true } });
+  if (open) return { ok: true, recommendationId: open.id, title: c.title, audienceSize: c.audience.length, duplicate: true };
+  const facts = factsFor(c, merchant.shopName);
+  const { results } = await composeBatch([{ facts, evidence: c.whyFacts, fallbackWhy: c.why }], true);
+  const [id] = await submitDrafts(merchant, actor, [draftFor(c, results[0], facts, { isDemo: merchant.isDemo, sessionId: null })]);
+  return { ok: true, recommendationId: id, title: c.title, audienceSize: c.audience.length, duplicate: false };
 }

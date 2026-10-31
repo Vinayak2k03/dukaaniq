@@ -15,6 +15,7 @@ export type MessageFacts =
   | (Base & (CouponBits | ComboBits) & { kind: "FESTIVE"; festivalName: string; validTill: string })
   | (Base & CouponBits & { kind: "OFF_PEAK"; timeWindowText: string; validTill: string })
   | (Base & CouponBits & { kind: "WINBACK"; validTill: string })
+  | (Base & CouponBits & { kind: "OFFER"; validTill: string })
   | (Base & ComboBits & { kind: "BUNDLE"; validTill: string });
 
 export type MessageKind = MessageFacts["kind"];
@@ -116,6 +117,18 @@ const TEMPLATES: Record<string, ToneLines> = {
       ENGLISH: "Hello {name}, skip the rush at {shop}! Visit {window} for {discount} {minSpend}, code {code}, till {validTill}.",
       HINGLISH: "Namaste {name} ji, bheed se bachiye! {shop} par {window} aaiye aur paayein {discount}, {minSpend}, code {code}, {validTill} tak.",
       HINDI: "नमस्ते {name} जी, भीड़ से बचिए! {shop} पर {window} आइए और पाएं {discount}, {minSpend}, कोड {code}, {validTill} तक।",
+    },
+  },
+  OFFER: {
+    standard: {
+      ENGLISH: "Hello {name}, a special offer from {shop}: {discount} {minSpend} with code {code}. Valid till {validTill}.",
+      HINGLISH: "Namaste {name} ji, {shop} ki taraf se khaas offer: code {code} se paayein {discount}, {minSpend}. {validTill} tak valid.",
+      HINDI: "नमस्ते {name} जी, {shop} की ओर से खास ऑफर: कोड {code} से पाएं {discount}, {minSpend}। {validTill} तक मान्य।",
+    },
+    softer: {
+      ENGLISH: "Hello {name}, we have something for you at {shop}: {discount} {minSpend}, code {code}, any time till {validTill}.",
+      HINGLISH: "Namaste {name} ji, {shop} mein aapke liye ek offer: code {code} se {discount}, {minSpend}. {validTill} tak kabhi bhi.",
+      HINDI: "नमस्ते {name} जी, {shop} में आपके लिए एक ऑफर: कोड {code} से {discount}, {minSpend}। {validTill} तक कभी भी।",
     },
   },
   WINBACK: {

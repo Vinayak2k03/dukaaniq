@@ -1,28 +1,36 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type KeyboardEvent } from "react";
 import { Mic, Volume } from "@/components/ui/icons";
 import { useVoice, type VoiceLanguage } from "./use-voice";
 import { VoiceWave } from "./voice-wave";
 
 export type IntentResponse = {
   intent: string;
-  params: { focus?: string[]; reason?: string; note?: string; customerName?: string; amountPaise?: number; range?: "today" | "7d" | "30d" };
+  params: { focus?: string[]; reason?: string; note?: string; customerName?: string; amountPaise?: number; range?: "today" | "7d" | "30d"; discountPct?: number; audience?: OfferAudience };
   confidence: number;
   needsConfirmation: boolean;
   source: "keywords" | "sarvam" | "none";
   /** Server-written answer for read-only data questions, already in the chosen language. */
   answer?: string;
+  /** Set when the answer is a follow-up question; sent back with the next turn so the reply completes it. */
+  pending?: Pending;
   customers?: { id: string; name: string; phone?: string | null; customerRef?: string | null }[];
 };
 
+export type OfferAudience = "LOYAL" | "INACTIVE" | "COOLING" | "ACTIVE" | "ALL";
+export type Pending = { intent: "ADD_CREDIT" | "RECORD_REPAYMENT" | "REQUEST_REMINDER" | "GET_CUSTOMER_BALANCE" | "CREATE_OFFER"; customerName?: string; amountPaise?: number; discountPct?: number; audience?: OfferAudience };
+
 export type VoiceAction = {
   label: string;
-  kind: "ADD_CREDIT" | "RECORD_REPAYMENT" | "REQUEST_REMINDER";
+  kind: "ADD_CREDIT" | "RECORD_REPAYMENT" | "REQUEST_REMINDER" | "CREATE_OFFER";
   customerId: string;
   customerName: string;
   phone?: string | null;
   amountPaise: number;
+  /** CREATE_OFFER only: the discount and customer group to prepare an offer proposal for. */
+  discountPct?: number;
+  audience?: OfferAudience;
 };
 
 export type VoiceBarResult = string | { text: string; actions?: VoiceAction[] };
@@ -40,7 +48,20 @@ const newKey = () => `voice:${Date.now()}:${Math.random().toString(36).slice(2, 
 
 /** The conversation keeps the last 3 exchanges; older ones drop off so follow-ups stay focused. */
 const MAX_TURNS = 3;
-type Turn = { user: string; assistant: string };
+type Turn = { user: string; assistant: string; pending?: Pending };
+const HOLD_MS = 250;
+const AUTO_SEND_KEY = "dukaaniq:voice-auto-send";
+const subscribeStorage = (cb: () => void) => {
+  window.addEventListener("storage", cb);
+  return () => window.removeEventListener("storage", cb);
+};
+const readAutoSend = () => {
+  try {
+    return localStorage.getItem(AUTO_SEND_KEY) !== "0";
+  } catch {
+    return true;
+  }
+};
 
 const LANGS: [VoiceLanguage, string][] = [["HINGLISH", "Hinglish"], ["HINDI", "हिंदी"], ["ENGLISH", "English"]];
 
@@ -55,17 +76,80 @@ export function VoiceBar({ sarvam, placeholder, initialText, onCommand }: Props)
   const [spoken, setSpoken] = useState(false);
   const [busy, setBusy] = useState(false);
   const [turns, setTurns] = useState<Turn[]>([]);
+  // Saved preference; the server snapshot keeps the first render identical on server and client.
+  const storedAutoSend = useSyncExternalStore(subscribeStorage, readAutoSend, () => true);
+  const [autoSendChoice, setAutoSend] = useState<boolean | null>(null);
+  const autoSend = autoSendChoice ?? storedAutoSend;
+  /** Push-to-talk: send as soon as the recording ends, whatever the auto-send setting. */
+  const sendAfter = useRef(false);
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const holding = useRef(false);
+  const suppressClick = useRef(false);
   const reply = turns.at(-1)?.assistant ?? null;
   const [actions, setActions] = useState<VoiceAction[]>([]);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [actionLink, setActionLink] = useState<{ href: string; label: string } | null>(null);
 
-  async function record() {
-    if (voice.listening) return voice.stop();
-    const heard = await voice.listen(language);
-    if (heard) {
-      setText(heard);
-      setSpoken(true);
+  /** One recording. Words appear in the box while speaking; the text is sent when auto-send is on or for push-to-talk. */
+  async function startListening(pushToTalk: boolean) {
+    if (voice.listening || busy) return;
+    sendAfter.current = pushToTalk;
+    setText("");
+    const heard = await voice.listen(language, { onInterim: (t) => setText(t) });
+    if (!heard?.trim()) return;
+    setText(heard);
+    setSpoken(true);
+    if (sendAfter.current || autoSend) await ask(heard.trim(), true);
+  }
+
+  function onMicPointerDown() {
+    if (voice.listening) return;
+    holdTimer.current = setTimeout(() => {
+      holding.current = true;
+      suppressClick.current = true;
+      void startListening(true);
+    }, HOLD_MS);
+  }
+
+  function onMicPointerUp() {
+    if (holdTimer.current) clearTimeout(holdTimer.current);
+    holdTimer.current = null;
+    if (!holding.current) return;
+    holding.current = false;
+    sendAfter.current = true;
+    voice.stop();
+  }
+
+  function onMicClick() {
+    if (suppressClick.current) {
+      suppressClick.current = false;
+      return;
+    }
+    if (voice.listening) voice.stop();
+    else void startListening(false);
+  }
+
+  /** Spacebar on the focused mic button works as push-to-talk. */
+  function onMicKeyDown(e: KeyboardEvent<HTMLButtonElement>) {
+    if (e.key !== " ") return;
+    e.preventDefault();
+    if (e.repeat || voice.listening) return;
+    holding.current = true;
+    void startListening(true);
+  }
+
+  function onMicKeyUp(e: KeyboardEvent<HTMLButtonElement>) {
+    if (e.key !== " ") return;
+    e.preventDefault();
+    onMicPointerUp();
+  }
+
+  function toggleAutoSend(on: boolean) {
+    setAutoSend(on);
+    try {
+      localStorage.setItem(AUTO_SEND_KEY, on ? "1" : "0");
+    } catch {
+      /* storage unavailable: the choice lasts for this page only */
     }
   }
 
@@ -77,8 +161,28 @@ export function VoiceBar({ sarvam, placeholder, initialText, onCommand }: Props)
     }
   };
 
+  /** Prepares one discount offer as a proposal. It still waits for approval in the Action Centre before anything is sent. */
+  async function prepareOffer(act: VoiceAction) {
+    setBusy(true);
+    setActionSuccess(null);
+    setActionLink(null);
+    try {
+      const res = await fetch("/api/tips/custom-offer", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ discountPct: act.discountPct, audience: act.audience }) });
+      const data = (await res.json()) as { error?: string; recommendationId?: string; title?: string; audienceSize?: number; duplicate?: boolean };
+      if (res.ok && data.recommendationId) {
+        finish(true, data.duplicate ? `"${data.title}" is already waiting for your approval.` : `Offer prepared: ${data.title}. Review the exact message and approve it before anything is sent.`);
+        setActionLink({ href: `/dashboard/action-centre/${data.recommendationId}`, label: "Review offer" });
+      } else finish(false, data.error ?? "Could not prepare the offer.");
+    } catch {
+      setActionSuccess("Network error. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   /** Runs only after the owner taps a button: voice never writes anything by itself. */
   async function executeAction(act: VoiceAction) {
+    if (act.kind === "CREATE_OFFER") return prepareOffer(act);
     const ledger = act.kind === "ADD_CREDIT" || act.kind === "RECORD_REPAYMENT";
     if (ledger && (!act.amountPaise || act.amountPaise <= 0)) {
       window.location.assign(`/dashboard/udhaar/${act.customerId}`);
@@ -121,9 +225,11 @@ export function VoiceBar({ sarvam, placeholder, initialText, onCommand }: Props)
     setActionSuccess(null);
     setActionLink(null);
     let answerText: string;
+    let pending: Pending | undefined;
     try {
       const res = await fetch("/api/voice/intent", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: t, language, history: turns.slice(-MAX_TURNS) }) });
       const data = (await res.json()) as IntentResponse & { error?: string };
+      pending = res.ok ? data.pending : undefined;
       const rawAnswer = !res.ok ? (data.error ?? "Could not understand that. Please try again.") : data.answer ?? (await onCommand(data, t));
       answerText = typeof rawAnswer === "string" ? rawAnswer : rawAnswer.text;
       setActions(typeof rawAnswer === "object" && rawAnswer.actions ? rawAnswer.actions : []);
@@ -134,7 +240,7 @@ export function VoiceBar({ sarvam, placeholder, initialText, onCommand }: Props)
       setBusy(false);
       setSpoken(false);
     }
-    setTurns((all) => [...all, { user: t, assistant: answerText }].slice(-MAX_TURNS));
+    setTurns((all) => [...all, { user: t, assistant: answerText, pending }].slice(-MAX_TURNS));
     setText("");
   }
 
@@ -162,11 +268,16 @@ export function VoiceBar({ sarvam, placeholder, initialText, onCommand }: Props)
         </select>
         <button
           type="button"
-          onClick={record}
+          onClick={onMicClick}
+          onPointerDown={onMicPointerDown}
+          onPointerUp={onMicPointerUp}
+          onPointerLeave={onMicPointerUp}
+          onKeyDown={onMicKeyDown}
+          onKeyUp={onMicKeyUp}
           aria-pressed={voice.listening}
-          aria-label={voice.listening ? "Stop listening" : "Speak a command"}
-          title={voice.listening ? "Stop" : "Speak"}
-          className={`relative inline-flex h-9 w-9 items-center justify-center rounded-full border transition-colors disabled:opacity-40 ${voice.listening ? "border-indigo-300 bg-indigo-600 text-white shadow-[0_0_14px_rgba(99,102,241,0.6)]" : "border-[#D0D5DD] bg-white text-[#4338CA] hover:bg-indigo-50"}`}
+          aria-label={voice.listening ? "Stop listening" : "Speak a command (tap, or hold to talk)"}
+          title={voice.listening ? "Stop" : "Tap to speak, or hold (or hold Space) to talk"}
+          className={`relative inline-flex h-9 w-9 touch-none select-none items-center justify-center rounded-full border transition-colors disabled:opacity-40 ${voice.listening ? "border-indigo-300 bg-indigo-600 text-white shadow-[0_0_14px_rgba(99,102,241,0.6)]" : "border-[#D0D5DD] bg-white text-[#4338CA] hover:bg-indigo-50"}`}
         >
           {voice.listening ? <span aria-hidden className="absolute inset-0 animate-ping rounded-full bg-indigo-400/50 motion-reduce:hidden" /> : null}
           <Mic size={16} className="relative" />
@@ -182,6 +293,10 @@ export function VoiceBar({ sarvam, placeholder, initialText, onCommand }: Props)
         <button type="submit" disabled={busy || !text.trim()} className="rounded-lg bg-[#4338CA] px-3.5 py-2 text-xs font-semibold text-white hover:bg-[#3730A3] disabled:opacity-50">
           {busy ? "Working..." : "Send"}
         </button>
+        <label className="flex items-center gap-1.5 text-[11px] text-[#525866]" title="Send automatically when you stop speaking">
+          <input type="checkbox" checked={autoSend} onChange={(e) => toggleAutoSend(e.target.checked)} className="h-3.5 w-3.5 accent-[#4338CA]" />
+          Auto-send
+        </label>
       </form>
       {voice.listening || voice.transcribing ? (
         <div role="status" aria-live="polite" className="mt-3 overflow-hidden rounded-xl bg-[#0B1020] px-4 pb-3 pt-2 shadow-inner">
@@ -227,19 +342,19 @@ export function VoiceBar({ sarvam, placeholder, initialText, onCommand }: Props)
           {actions.length > 0 && (
             <div className="mt-2 flex flex-col gap-1.5 border-t border-[#E2E4E9] pt-2">
               <p className="font-semibold text-[#525866]">
-                {actions[0].kind === "ADD_CREDIT" ? "Select customer to add credit:" : actions[0].kind === "RECORD_REPAYMENT" ? "Select customer to record repayment:" : "Select customer to prepare a reminder:"}
+                {actions[0].kind === "CREATE_OFFER" ? "Confirm to prepare this offer:" : actions[0].kind === "ADD_CREDIT" ? "Select customer to add credit:" : actions[0].kind === "RECORD_REPAYMENT" ? "Select customer to record repayment:" : "Select customer to prepare a reminder:"}
               </p>
               <div className="flex flex-wrap gap-2">
                 {actions.map((act) => (
                   <button
-                    key={act.customerId}
+                    key={act.customerId || act.label}
                     type="button"
                     disabled={busy}
                     onClick={() => void executeAction(act)}
                     className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#4338CA] shadow-sm hover:border-indigo-400 hover:bg-indigo-50/50 disabled:opacity-50"
                   >
                     <span>{act.label}</span>
-                    <span className="font-normal text-[#525866]">({act.phone ? act.phone : "No phone"})</span>
+                    {act.kind === "CREATE_OFFER" ? null : <span className="font-normal text-[#525866]">({act.phone ? act.phone : "No phone"})</span>}
                   </button>
                 ))}
               </div>
