@@ -26,9 +26,11 @@ import { SEGMENT_RULES } from "@/server/analytics/queries";
 import { requireSession } from "@/server/auth/session";
 import { getCurrentMembership } from "@/server/merchant/access";
 import { listRecommendations } from "@/server/recommendations/service";
+import { HomeActions, type HomeFacts } from "@/components/dashboard/home-actions";
+import { getSummary } from "@/server/analytics/queries";
+import { resolveRange } from "@/server/analytics/range";
+import { listAccounts, summarize } from "@/server/credit/service";
 import { ReapplyPanel } from "./reapply-panel";
-import { ShopAssistant } from "@/components/voice/shop-assistant";
-import { env } from "@/lib/env";
 
 export const metadata: Metadata = { title: "Command Centre" };
 
@@ -52,7 +54,7 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
             {timeGreeting}, {session.user.name}
           </h1>
           <p className="mt-2 text-sm text-[#737B8C]">
-            Complete your shop onboarding to unlock deterministic AI analytics and udhaar recovery.
+            Set up your shop to see your sales, udhaar and suggestions.
           </p>
           <div className="mt-6">
             <Link
@@ -94,6 +96,27 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
     if (counts) demoCounts = { sales: counts[0], customers: counts[1], credit: counts[2] };
   } catch (e) {
     console.error("Dashboard failed to load:", e);
+  }
+
+  // "What needs your attention today": the same queries the Udhaar and Sales pages use, for the shop's current day.
+  let homeFacts: HomeFacts | null = null;
+  try {
+    const grace = (await db.creditPolicy.findUnique({ where: { merchantId: merchant.id }, select: { gracePeriodDays: true } }))?.gracePeriodDays ?? 0;
+    const [accounts, today] = await Promise.all([
+      listAccounts(merchant, referenceDate, grace),
+      getSummary(merchant.id, resolveRange({ range: "custom", from: referenceDate, to: referenceDate }, referenceDate).range),
+    ]);
+    const credit = summarize(accounts);
+    homeFacts = {
+      overduePaise: credit.totalOverduePaise,
+      overdueCustomers: credit.overdueCustomers,
+      inactiveCustomers: data?.segments.INACTIVE ?? 0,
+      waitingForYou: recommendations.filter((r) => r.status === "PENDING_APPROVAL").length,
+      todaySalesPaise: today.netSalesPaise,
+      todayBills: today.orders,
+    };
+  } catch (e) {
+    console.error("Home cards failed to load:", e);
   }
 
   // Calculate sparkline and trend comparisons
@@ -150,16 +173,15 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
             href="/dashboard/sales"
             className="inline-flex items-center gap-1.5 rounded-lg border border-[#D0D5DD] bg-white px-3 py-1.5 font-medium text-[#171A23] shadow-xs hover:bg-[#F8F9FA] transition-colors"
           >
-            <span>Analytics Workspace</span>
+            <span>Sales details</span>
             <ArrowRight size={13} />
           </Link>
         </div>
       </section>
 
-      {/* Voice / typed assistant: questions, udhaar, and adding products, customers and sales without the workbook */}
-      <section aria-label="Shop assistant">
-        <ShopAssistant sarvam={Boolean(env.SARVAM_API_KEY)} referenceDate={referenceDate} placeholder='Try "2 Maggi aur 1 Parle-G becha, cash" or "naya product add karo"' />
-      </section>
+      {homeFacts ? <HomeActions facts={homeFacts} /> : null}
+
+      <h2 className="pt-2 text-sm font-bold text-[#171A23]">Your business numbers</h2>
 
       {/* Demo store indicator */}
       {merchant.isDemo && (
@@ -172,9 +194,9 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
               i
             </span>
             <span>
-              <strong>Demo store &mdash; synthetic, illustrative data.</strong> Names, phone numbers and sales are made up
+              <strong>Demo shop:</strong> names, phone numbers and sales here are sample data for trying the app
               {demoCounts
-                ? ` (${demoCounts.sales.toLocaleString("en-IN")} sales, ${demoCounts.customers.toLocaleString("en-IN")} customers, ${demoCounts.credit.toLocaleString("en-IN")} credit entries)`
+                ? ` (${demoCounts.sales.toLocaleString("en-IN")} sales, ${demoCounts.customers.toLocaleString("en-IN")} customers, ${demoCounts.credit.toLocaleString("en-IN")} udhaar entries)`
                 : ""}
               . No real message is ever sent to these customers.
             </span>
@@ -196,9 +218,9 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
       {!data ? (
         <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-8 text-center text-rose-800">
           <AlertCircle size={28} className="mx-auto text-rose-600" />
-          <h3 className="mt-3 text-base font-semibold">Unable to load dashboard metrics</h3>
+          <h3 className="mt-3 text-base font-semibold">Could not load your numbers</h3>
           <p className="mt-1 text-xs text-rose-700">
-            DukaanIQ uses strictly deterministic calculations. Figures are suppressed rather than showing fabricated numbers.
+            We only show numbers we can calculate from your records. Please refresh in a moment.
           </p>
         </div>
       ) : (
@@ -207,35 +229,35 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
           <div className="flex items-center justify-between text-xs text-[#737B8C]">
             <span>
               Showing paid sales from <strong className="text-[#171A23]">{formatLocalDate(range.fromDate)}</strong> to{" "}
-              <strong className="text-[#171A23]">{formatLocalDate(range.toDate)}</strong> ({range.days} days &middot; {range.granularity} granularity)
+              <strong className="text-[#171A23]">{formatLocalDate(range.toDate)}</strong> ({range.days} days &middot; {range.granularity} view)
             </span>
-            <span className="hidden sm:inline">Excludes unpaid credit and cancelled sales</span>
+            <span className="hidden sm:inline">Udhaar and cancelled bills are not counted</span>
           </div>
 
           {/* 2. Key Performance Indicators (Linear / Stripe style 4-column grid) */}
           <section aria-label="Key performance indicators" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <KpiCard
-              label="Net Sales Revenue"
+              label="Sales"
               value={formatPaise(data.summary.netSalesPaise)}
               trend={salesTrendPct}
               trendLabel="vs earlier half"
               sparklineData={salesSparkline}
-              hint="After coupons and item discounts"
+              hint="After discounts"
               icon={<TrendingUp size={16} />}
             />
 
             <KpiCard
-              label="Completed Orders"
+              label="Bills"
               value={data.summary.orders.toLocaleString("en-IN")}
               trend={ordersTrendPct}
-              trendLabel="paid volume"
+              trendLabel="vs earlier half"
               sparklineData={ordersSparkline}
-              hint="Paid and fulfilled transactions"
+              hint="Paid bills"
               icon={<Receipt size={16} />}
             />
 
             <KpiCard
-              label="Average Order Value"
+              label="Average bill"
               value={data.summary.orders ? formatPaise(data.summary.averageOrderValuePaise) : "₹0"}
               hint={data.summary.orders ? `Across ${data.summary.orders} paid checkouts` : "No paid orders"}
               icon={<Wallet size={16} />}
@@ -250,7 +272,7 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
               <div className="mt-2 flex items-center justify-between text-[11px] text-[#737B8C]">
                 <span>Total base: {totalCustomers}</span>
                 <Link href="/dashboard/customers" className="font-semibold text-[#4338CA] hover:underline">
-                  CRM &rarr;
+                  Customers &rarr;
                 </Link>
               </div>
             </KpiCard>
@@ -485,7 +507,7 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
             <Panel
               title="Customer Health & Retention"
               subtitle={`Activity recency as of ${formatLocalDate(referenceDate)}`}
-              action={<Link href="/dashboard/customers" className="text-xs text-[#4338CA] font-medium hover:underline">CRM view &rarr;</Link>}
+              action={<Link href="/dashboard/customers" className="text-xs text-[#4338CA] font-medium hover:underline">See customers &rarr;</Link>}
             >
               <div className="space-y-3">
                 <div className="grid grid-cols-2 gap-3 text-xs">

@@ -61,7 +61,7 @@ export default async function CustomerLedgerPage({
                 </span>
               </div>
               <p className="mt-0.5 text-xs text-[#737B8C]">
-                Individual Credit Ledger Account &middot; Append-only audit integrity
+                Udhaar account · every entry is kept, nothing is deleted
               </p>
             </div>
           </div>
@@ -71,7 +71,7 @@ export default async function CustomerLedgerPage({
               href={`/dashboard/customers/${customer.id}`}
               className="rounded-lg border border-[#D0D5DD] bg-white px-3 py-1.5 text-xs font-medium text-[#171A23] hover:bg-[#F8F9FA] transition-colors"
             >
-              CRM Profile &rarr;
+              Customer details &rarr;
             </Link>
           </div>
         </div>

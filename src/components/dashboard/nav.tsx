@@ -4,15 +4,15 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const links = [
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/dashboard/sales", label: "Sales Analytics" },
+  { href: "/dashboard", label: "Home" },
+  { href: "/dashboard/sales", label: "Sales" },
   { href: "/dashboard/customers", label: "Customers" },
-  { href: "/dashboard/action-centre", label: "AI Recommendations" },
-  { href: "/dashboard/transactions", label: "Transactions" },
-  { href: "/dashboard/campaigns", label: "Coupons & Campaigns" },
+  { href: "/dashboard/action-centre", label: "Suggestions" },
+  { href: "/dashboard/transactions", label: "Bills" },
+  { href: "/dashboard/campaigns", label: "Offers & coupons" },
   { href: "/dashboard/udhaar", label: "Udhaar" },
-  { href: "/dashboard/recover-customers", label: "Recover Customers" },
-  { href: "/dashboard/import", label: "Workbook Importer" },
+  { href: "/dashboard/recover-customers", label: "Customers not coming" },
+  { href: "/dashboard/import", label: "Import from Excel" },
   { href: "/dashboard/settings", label: "Settings" },
 ];
 

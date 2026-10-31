@@ -116,7 +116,7 @@ export default async function CustomerDetailPage({
           className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#4338CA] hover:underline"
         >
           <ChevronLeft size={14} />
-          <span>Back to Customers CRM</span>
+          <span>Back to customers</span>
         </Link>
 
         {/* Customer Header Bar */}
@@ -172,7 +172,7 @@ export default async function CustomerDetailPage({
       {/* KPI Stats Strip */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
-          label="Lifetime Spend (LTV)"
+          label="Total spent"
           value={formatPaise(totalSpendPaise)}
           hint="From paid completed sales"
           icon={<Wallet size={16} />}
@@ -184,7 +184,7 @@ export default async function CustomerDetailPage({
           icon={<Receipt size={16} />}
         />
         <KpiCard
-          label="Average Basket (AOV)"
+          label="Average bill"
           value={formatPaise(aovPaise)}
           hint="Average net spend per visit"
           icon={<Tag size={16} />}
@@ -204,7 +204,7 @@ export default async function CustomerDetailPage({
             <Sparkles size={18} />
           </div>
           <div className="space-y-1">
-            <h3 className="text-sm font-bold text-[#171A23]">AI Customer Profile &amp; Intelligence</h3>
+            <h3 className="text-sm font-bold text-[#171A23]">About this customer</h3>
             <p className="text-xs text-[#525866] leading-relaxed">
               {segment === "ACTIVE"
                 ? `${customer.displayName} is an active shopper (last visited ${daysSince ?? 0} days ago). Recommending loyalty discounts and bundle cross-sells to increase basket value.`
@@ -308,7 +308,7 @@ export default async function CustomerDetailPage({
       {customer.creditEntries.length > 0 && (
         <Panel
           title={`Credit Ledger Log (${customer.creditEntries.length} entries)`}
-          subtitle="Append-only credit entries for this customer"
+          subtitle="Udhaar entries for this customer"
           action={
             <Link
               href={`/dashboard/udhaar/${customer.id}`}

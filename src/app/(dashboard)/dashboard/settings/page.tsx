@@ -103,7 +103,7 @@ export default async function SettingsPage() {
               value={categoryLabel(membership.merchant.businessCategory)}
             />
             <SettingRow
-              label="Operating Timezone"
+              label="Time zone"
               value={membership.merchant.timezone ?? "Asia/Kolkata (IST +05:30)"}
             />
             <SettingRow
@@ -128,8 +128,8 @@ export default async function SettingsPage() {
 
       {/* Credit Policy Settings */}
       <Panel
-        title="Udhaar &amp; Credit Governance Policy"
-        subtitle="Deterministic rules regulating overdue calculations and grace periods"
+        title="Udhaar rules"
+        subtitle="When udhaar counts as overdue"
         badge={<Badge variant="brand" size="sm">Policy</Badge>}
       >
         <dl className="divide-y divide-[#F0F2F5]">
@@ -144,32 +144,23 @@ export default async function SettingsPage() {
             description="DukaanIQ never charges customers without explicit owner ledger entries"
           />
           <SettingRow
-            label="Ledger Integrity"
-            value="Append-only"
-            description="Database triggers reject updates and deletes on ledger entries; corrections are new adjustment entries"
+            label="Udhaar safety"
+            value={<span className="text-emerald-700 font-semibold">&check; Entries can never be edited or deleted</span>}
+            description="A mistake is fixed with a correction entry, so the full history is always kept"
           />
         </dl>
       </Panel>
 
-      {/* Connected Integrations & Health */}
-      <Panel
-        title="Connected Infrastructure &amp; AI Integrations"
-        subtitle="Platform runtime and database connectivity"
-        badge={dbOnline ? <Badge variant="success" size="sm">Database reachable</Badge> : <Badge variant="danger" size="sm">Database unreachable</Badge>}
-      >
+      {/* How the shop's data is handled, in plain words */}
+      <Panel title="Your data and AI" subtitle="How DukaanIQ keeps your records safe">
         <dl className="divide-y divide-[#F0F2F5]">
+          <SettingRow label="Who can see it" value="Only people you add to this shop" />
+          <SettingRow label="Numbers" value="Always calculated from your own sales and udhaar records" />
+          <SettingRow label="AI" value="Sarvam AI writes messages in your language. It never changes an amount, and nothing is sent without your approval" />
           <SettingRow
-            label="Database Cluster"
-            value="PostgreSQL"
+            label="Connection"
+            value={dbOnline ? "Your records are reachable" : <span className="font-semibold text-rose-700">Cannot reach your records right now</span>}
             badge={<span className={`h-2 w-2 rounded-full ${dbOnline ? "bg-emerald-500" : "bg-rose-500"}`} />}
-          />
-          <SettingRow
-            label="Authentication Engine"
-            value="Better Auth (session cookies)"
-          />
-          <SettingRow
-            label="AI Copilot Model"
-            value="Sarvam AI Indic Engine + Deterministic Fallback"
           />
         </dl>
       </Panel>

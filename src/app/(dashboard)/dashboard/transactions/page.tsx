@@ -11,7 +11,7 @@ import { Receipt, Search, Filter, Wallet, ArrowRight, Tag } from "@/components/u
 import type { Prisma } from "@/generated/prisma/client";
 import type { PaymentMethod, PaymentStatus, SaleStatus } from "@/generated/prisma/enums";
 
-export const metadata: Metadata = { title: "Financial Transactions" };
+export const metadata: Metadata = { title: "Bills" };
 
 export default async function TransactionsPage({
   searchParams,
@@ -97,7 +97,7 @@ export default async function TransactionsPage({
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#E2E4E9] pb-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-[#171A23]">Financial Transaction Management</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-[#171A23]">Bills</h1>
           <p className="mt-1 text-xs text-[#737B8C]">
             Verified ledger of sales, discounts, invoices and multi-channel payment settlements.
           </p>

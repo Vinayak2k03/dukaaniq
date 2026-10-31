@@ -8,7 +8,7 @@ import { VoiceBar, type IntentResponse, type VoiceBarResult } from "./voice-bar"
  * The general shop assistant: data questions, udhaar commands, and adding products, customers and sales (the server
  * answers those with a review card). Tip requests open Growth Tips; approvals happen on a recommendation's own page.
  */
-export function ShopAssistant({ sarvam, referenceDate, placeholder }: { sarvam: boolean; referenceDate: string; placeholder?: string }) {
+export function ShopAssistant({ sarvam, referenceDate, placeholder, initialText, examples }: { sarvam: boolean; referenceDate: string; placeholder?: string; initialText?: string; examples?: string[] }) {
   const router = useRouter();
   async function onCommand(r: IntentResponse, text: string): Promise<VoiceBarResult> {
     switch (r.intent) {
@@ -26,5 +26,5 @@ export function ShopAssistant({ sarvam, referenceDate, placeholder }: { sarvam: 
         return (await answerInfoIntent(r, referenceDate)) ?? 'Sorry, I did not understand. Try "2 Maggi becha, cash" or "aaj ki sales kitni hui".';
     }
   }
-  return <VoiceBar sarvam={sarvam} onCommand={onCommand} placeholder={placeholder} />;
+  return <VoiceBar sarvam={sarvam} onCommand={onCommand} placeholder={placeholder} initialText={initialText} examples={examples} />;
 }

@@ -18,15 +18,15 @@ type Membership = {
 
 const routeTitles: Record<string, string> = {
   "/dashboard": "Command Centre",
-  "/dashboard/sales": "Sales Analytics",
-  "/dashboard/customers": "Customer Intelligence",
-  "/dashboard/action-centre": "AI Recommendation Centre",
+  "/dashboard/sales": "Sales",
+  "/dashboard/customers": "Customers",
+  "/dashboard/action-centre": "Suggestions",
   "/dashboard/grow-profit": "Growth Tips",
-  "/dashboard/transactions": "Financial Transactions",
+  "/dashboard/transactions": "Bills",
   "/dashboard/campaigns": "Coupons & Campaigns",
   "/dashboard/udhaar": "Udhaar & Credit Ledger",
   "/dashboard/recover-customers": "Customer Recovery",
-  "/dashboard/import": "Enterprise Workbook Importer",
+  "/dashboard/import": "Import from Excel",
   "/dashboard/settings": "Shop & System Settings",
 };
 

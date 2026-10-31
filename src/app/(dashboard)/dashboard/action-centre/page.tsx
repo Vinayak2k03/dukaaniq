@@ -6,8 +6,6 @@ import { KpiCard } from "@/components/dashboard/kpi-card";
 import { ReminderOutcomesPanel } from "@/components/dashboard/reminder-outcomes";
 import { getReminderOutcomes } from "@/server/outcomes/service";
 import { env } from "@/lib/env";
-import { referenceDateFor } from "@/server/analytics/range";
-import { ActionCentreVoice } from "./action-centre-voice";
 import { formatDateTimeIST } from "@/lib/money";
 import { requireSession } from "@/server/auth/session";
 import { getCurrentMembership } from "@/server/merchant/access";
@@ -24,48 +22,48 @@ import {
   Users,
 } from "@/components/ui/icons";
 
-export const metadata: Metadata = { title: "AI Recommendation Centre" };
+export const metadata: Metadata = { title: "Suggestions" };
 
 const GROUPS = [
   {
     key: "PENDING",
-    title: "Waiting for Your Executive Decision",
-    hint: "DukaanIQ only proposes. No customer is contacted and no action executes without your explicit sign-off.",
+    title: "Waiting for your OK",
+    hint: "Nothing is sent to any customer until you approve it.",
     statuses: ["DRAFT", "PENDING_APPROVAL"],
     badgeVariant: "brand" as const,
   },
   {
     key: "APPROVED",
-    title: "Approved Proposals & Ready for Queue",
-    hint: "Approved by store owner and staged for recorded execution.",
+    title: "Approved, ready to send",
+    hint: "You approved these. Open one to send it.",
     statuses: ["APPROVED", "EXECUTION_PENDING"],
     badgeVariant: "success" as const,
   },
   {
     key: "EXECUTED",
-    title: "Executed & Verified Actions",
-    hint: "Simulated demo actions and delivery log. All events recorded in append-only audit trail.",
+    title: "Done",
+    hint: "Sent, or recorded as a demo.",
     statuses: ["SIMULATED", "SENT", "DELIVERED", "READ"],
     badgeVariant: "neutral" as const,
   },
   {
     key: "REJECTED",
-    title: "Rejected or Archived Proposals",
-    hint: "Proposals declined with merchant feedback or superseded by revised alternatives.",
+    title: "Not now",
+    hint: "Ones you said no to, or replaced with a new version.",
     statuses: ["REJECTED", "CANCELLED", "FAILED"],
     badgeVariant: "danger" as const,
   },
 ];
 
 const CATEGORY_MAP: Record<string, { label: string; badge: string }> = {
-  CREDIT_REMINDER: { label: "Cashflow & Credit Recovery", badge: "Cashflow" },
-  WINBACK: { label: "Customer Retention & Reactivation", badge: "Retention" },
-  BUNDLE: { label: "Revenue Growth & Basket Expansion", badge: "Revenue" },
-  SLOW_MOVING: { label: "Sales & Inventory Optimization", badge: "Inventory" },
-  PEAK_TIMING: { label: "Marketing & Footfall Timing", badge: "Marketing" },
-  LOYALTY: { label: "Customer Loyalty & VIP Engagement", badge: "Loyalty" },
-  FESTIVE: { label: "Festive Campaign", badge: "Festive" },
-  OFF_PEAK: { label: "Low-Hours Offer", badge: "Footfall" },
+  CREDIT_REMINDER: { label: "Get udhaar back", badge: "Cashflow" },
+  WINBACK: { label: "Bring customers back", badge: "Retention" },
+  BUNDLE: { label: "Sell more together", badge: "Revenue" },
+  SLOW_MOVING: { label: "Move slow stock", badge: "Inventory" },
+  PEAK_TIMING: { label: "Busy-hour idea", badge: "Marketing" },
+  LOYALTY: { label: "Reward regulars", badge: "Loyalty" },
+  FESTIVE: { label: "Festival offer", badge: "Festive" },
+  OFF_PEAK: { label: "Quiet-hour offer", badge: "Footfall" },
 };
 
 function RecommendationTable({ rows }: { rows: RecommendationListItem[] }) {
@@ -74,10 +72,10 @@ function RecommendationTable({ rows }: { rows: RecommendationListItem[] }) {
       <table className="w-full text-left text-xs">
         <thead>
           <tr className="border-b border-[#E2E4E9] text-[11px] font-semibold uppercase tracking-wider text-[#737B8C]">
-            <th scope="col" className="pb-3 pr-4">Business Opportunity</th>
-            <th scope="col" className="pb-3 pr-4">Strategy Category</th>
-            <th scope="col" className="pb-3 pr-4 text-center">Target Audience</th>
-            <th scope="col" className="pb-3 pr-4">Generated Date</th>
+            <th scope="col" className="pb-3 pr-4">Suggestion</th>
+            <th scope="col" className="pb-3 pr-4">Type</th>
+            <th scope="col" className="pb-3 pr-4 text-center">Customers</th>
+            <th scope="col" className="pb-3 pr-4">Prepared on</th>
             <th scope="col" className="pb-3 pr-4">State</th>
             <th scope="col" className="pb-3 text-right">Action</th>
           </tr>
@@ -102,7 +100,7 @@ function RecommendationTable({ rows }: { rows: RecommendationListItem[] }) {
                     )}
                   </Link>
                   <p className="mt-0.5 text-[11px] text-[#737B8C]">
-                    Calculated from ledger facts &middot; {r.isAlternative ? "Adjusted based on feedback" : "Initial AI draft"}
+                    {r.isAlternative ? "New version after your feedback" : "Based on your records"}
                   </p>
                 </td>
 
@@ -138,7 +136,7 @@ function RecommendationTable({ rows }: { rows: RecommendationListItem[] }) {
                         : "border border-[#D0D5DD] bg-white text-[#171A23] hover:bg-[#F8F9FA]"
                     }`}
                   >
-                    <span>{isPending ? "Review" : "Details"}</span>
+                    <span>{isPending ? "Review" : "Open"}</span>
                     <ArrowRight size={12} />
                   </Link>
                 </td>
@@ -154,7 +152,7 @@ function RecommendationTable({ rows }: { rows: RecommendationListItem[] }) {
 export default async function ActionCentrePage() {
   const session = await requireSession();
   const membership = await getCurrentMembership(session.user.id);
-  if (!membership) return <EmptyState message="Set up your shop first to view recommendations." />;
+  if (!membership) return <EmptyState message="Set up your shop first to see suggestions." />;
 
   let rows: RecommendationListItem[] | null = null;
   try {
@@ -177,13 +175,13 @@ export default async function ActionCentrePage() {
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#E2E4E9] pb-4">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold tracking-tight text-[#171A23]">AI Recommendation Centre</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-[#171A23]">Suggestions</h1>
             <Badge variant="brand" size="sm">
-              Copilot Governance
+              You decide
             </Badge>
           </div>
           <p className="mt-1 text-xs text-[#737B8C]">
-            Enterprise decision workflow. DukaanIQ generates proposals with calculated evidence; you review, revise and approve.
+            Ideas prepared from your sales and udhaar. Check each one and approve only what you like.
           </p>
         </div>
 
@@ -199,38 +197,36 @@ export default async function ActionCentrePage() {
             href="/dashboard/udhaar"
             className="inline-flex items-center gap-1.5 rounded-lg border border-[#D0D5DD] bg-white px-3.5 py-2 text-xs font-semibold text-[#171A23] shadow-xs hover:bg-[#F8F9FA] transition-colors"
           >
-            <span>Scan Overdue Ledger</span>
+            <span>Open Udhaar</span>
             <ArrowRight size={13} />
           </Link>
         </div>
       </div>
 
-      <ActionCentreVoice sarvam={Boolean(env.SARVAM_API_KEY)} referenceDate={referenceDateFor(membership.merchant)} />
-
       {/* KPI Cards Strip */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
-          label="Pending Your Decision"
+          label="Waiting for you"
           value={`${pendingCount} proposals`}
-          hint="Requires merchant sign-off"
+          hint="Need your OK"
           icon={<Clock size={16} />}
         />
         <KpiCard
-          label="Approved &amp; Staged"
+          label="Ready to send"
           value={`${approvedCount} actions`}
-          hint="Ready for execution queue"
+          hint="Approved by you"
           icon={<CheckCircle2 size={16} />}
         />
         <KpiCard
-          label="Verified Actions Completed"
+          label="Done"
           value={`${doneCount} recorded`}
-          hint="Simulated demo actions logged"
+          hint="Sent or recorded"
           icon={<Shield size={16} />}
         />
         <KpiCard
-          label="Declined / Archived"
+          label="Not now"
           value={`${rejectedCount} proposals`}
-          hint="Dismissed or revised"
+          hint="Rejected or replaced"
           icon={<AlertCircle size={16} />}
         />
       </div>
@@ -242,7 +238,7 @@ export default async function ActionCentrePage() {
             <Shield size={15} />
           </div>
           <div>
-            <strong className="font-semibold">Deterministic Decision Engine:</strong> All financial amounts, customer overdue balances and audience segments are computed directly by database code. Message text is phrased with Sarvam AI and validated before display.
+            <strong className="font-semibold">How suggestions work:</strong> amounts, balances and customer lists come straight from your records. AI only writes the message, and it is checked before you see it.
           </div>
         </div>
       </div>
@@ -251,10 +247,10 @@ export default async function ActionCentrePage() {
 
       {/* Grouped Recommendation Tables */}
       {!rows ? (
-        <EmptyState message="Unable to load recommendations. Please refresh." />
+        <EmptyState message="Could not load suggestions. Please refresh." />
       ) : allRows.length === 0 ? (
         <EmptyState
-          title="No recommendations yet"
+          title="No suggestions yet"
           message="Ask for growth tips to get new business ideas. Overdue udhaar reminders appear in your notifications."
         />
       ) : (

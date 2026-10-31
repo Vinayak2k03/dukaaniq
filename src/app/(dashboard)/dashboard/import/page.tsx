@@ -54,7 +54,7 @@ export default async function WorkbookImporterPage() {
     { name: "Products", desc: "Inventory catalog with unit selling prices and cost prices", count: "35 SKUs" },
     { name: "Sales", desc: "Transaction headers with net amount, payment method & coupon code", count: "970 sales" },
     { name: "Sale_Items", desc: "Itemized line items with line total and cost of goods sold", count: "2,400+ lines" },
-    { name: "Credit", desc: "Append-only udhaar ledger entries with credit given & repayments", count: "74 entries" },
+    { name: "Credit", desc: "Udhaar given and repaid, per customer", count: "74 entries" },
     { name: "Credit_Policies", desc: "Merchant credit grace period and late fee rules", count: "1 policy" },
     { name: "Business_Summary", desc: "Control checksum totals for independent verification", count: "Checksums" },
   ];
@@ -65,9 +65,9 @@ export default async function WorkbookImporterPage() {
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#E2E4E9] pb-4">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold tracking-tight text-[#171A23]">Enterprise Workbook Importer</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-[#171A23]">Import from Excel</h1>
             <Badge variant="brand" size="sm">
-              Batch Pipeline
+              Excel
             </Badge>
           </div>
           <p className="mt-1 text-xs text-[#737B8C]">
@@ -88,25 +88,25 @@ export default async function WorkbookImporterPage() {
         <KpiCard
           label="Import Runs Executed"
           value={`${runs.length} runs`}
-          hint="Audit-logged data ingestions"
+          hint="Times you imported"
           icon={<Clock size={16} />}
         />
         <KpiCard
-          label="Pipeline Status"
+          label="Last import"
           value={lastRun?.status === "SUCCEEDED" ? "Healthy (PASS)" : "Ready"}
-          hint="100% deterministic balance checks"
+          hint="Totals are checked after import"
           icon={<Shield size={16} />}
         />
         <KpiCard
           label="Supported Format"
           value="Excel (.xlsx)"
-          hint="Multi-sheet relational workbook"
+          hint="One Excel file with several sheets"
           icon={<FileSpreadsheet size={16} />}
         />
         <KpiCard
-          label="Integrity Guardrails"
+          label="Safe to re-run"
           value="Zero Mutation"
-          hint="Append-only ledger guarantees"
+          hint="Importing again never duplicates rows"
           icon={<CheckCircle2 size={16} />}
         />
       </div>
@@ -148,7 +148,7 @@ export default async function WorkbookImporterPage() {
             4
           </div>
           <div>
-            <p className="font-semibold text-[#171A23]">DB Ingestion</p>
+            <p className="font-semibold text-[#171A23]">Saved</p>
             <p className="text-[11px] text-[#737B8C]">Neon Postgres committed</p>
           </div>
         </div>
@@ -193,7 +193,7 @@ export default async function WorkbookImporterPage() {
       {/* Schema Sheet Specification Matrix */}
       <Panel
         title="Workbook Schema Specification (8 Sheets)"
-        subtitle="The workbook must contain all 8 relational sheets with verified headers"
+        subtitle="The Excel file needs all 8 sheets with the expected column names"
       >
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {sheets.map((s) => (
@@ -213,7 +213,7 @@ export default async function WorkbookImporterPage() {
       {/* Historical Import Runs */}
       <Panel
         title={`Audit Log of Import Runs (${runs.length})`}
-        subtitle="Complete record of all batch dataset ingestions committed to Neon DB"
+        subtitle="Every import you have run"
       >
         {runs.length === 0 ? (
           <EmptyState message="No import runs recorded yet." />

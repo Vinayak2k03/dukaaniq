@@ -90,7 +90,7 @@ export default async function UdhaarPage({ searchParams }: PageProps<"/dashboard
           <span>
             <strong>Demo store dataset:</strong> 74 immutable ledger entries representing retail credit. Overdue days calculated relative to fixed reference date {referenceDate}.
           </span>
-          <span className="shrink-0 font-mono text-[11px] text-amber-800">Deterministic Ledger</span>
+          <span className="shrink-0 font-mono text-[11px] text-amber-800">Udhaar book</span>
         </div>
       )}
 
@@ -139,7 +139,7 @@ export default async function UdhaarPage({ searchParams }: PageProps<"/dashboard
                   <Sparkles size={20} />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-[#171A23]">AI Payment Reminder Copilot</h3>
+                  <h3 className="text-sm font-bold text-[#171A23]">Payment reminders</h3>
                   <p className="mt-0.5 text-xs text-[#525866] max-w-xl leading-relaxed">
                     DukaanIQ scans your ledger for customers overdue past their grace period, drafting polite, multi-lingual WhatsApp reminders. Nothing is sent until you approve in the Action Centre.
                   </p>
