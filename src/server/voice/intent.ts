@@ -21,6 +21,9 @@ export const INTENTS = [
   "RECORD_REPAYMENT",
   "REQUEST_REMINDER",
   "CREATE_OFFER",
+  "ADD_PRODUCT",
+  "ADD_CUSTOMER",
+  "RECORD_SALE",
   "APPROVE_RECOMMENDATION",
   "CONFIRM",
   "UNKNOWN",
@@ -46,7 +49,21 @@ export const intentSchema = z.object({ intent: z.enum(INTENTS), params: intentPa
 
 export type IntentResult = { intent: Intent; params: IntentParams; confidence: number; needsConfirmation: boolean; source: "keywords" | "sarvam" | "none"; answer?: string };
 
-export const NEEDS_CONFIRMATION: Intent[] = ["ADD_CREDIT", "RECORD_REPAYMENT", "REQUEST_REMINDER", "CREATE_OFFER", "APPROVE_RECOMMENDATION", "CONFIRM"];
+export const NEEDS_CONFIRMATION: Intent[] = ["ADD_CREDIT", "RECORD_REPAYMENT", "REQUEST_REMINDER", "CREATE_OFFER", "ADD_PRODUCT", "ADD_CUSTOMER", "RECORD_SALE", "APPROVE_RECOMMENDATION", "CONFIRM"];
+
+/** Commands that create shop records. They are answered with a pre-filled review card, never saved by voice. */
+export const RECORD_INTENTS = ["ADD_PRODUCT", "ADD_CUSTOMER", "RECORD_SALE"] as const satisfies readonly Intent[];
+export type RecordIntent = (typeof RECORD_INTENTS)[number];
+
+/** A question ("kitna becha?") is never a command to write something. */
+const QUESTION = /(kitna|kitne|kitni|how much|how many|kaun|\bkon\b|which|\bwhat\b|\bkya\b|कितना|कितने|कितनी|कौन|क्या)/;
+const CREDIT_WORD = /(udhaar|udhar|उधार|credit|reminder|repay)/;
+const ADD_VERB = String.raw`(add|jodo|jod do|joddo|banao|bana do|daalo|dalo|daal do|likho|save|darj|जोड़ो|जोड़ दो|बनाओ|डालो|लिखो|सेव)`;
+const NEW_CUSTOMER = new RegExp(String.raw`(naya|nayi|new|नया|नई).{0,12}(customer|grahak|ग्राहक)|(customer|grahak|ग्राहक).{0,30}${ADD_VERB}|add .{0,30}(customer|grahak)`);
+const NEW_PRODUCT = new RegExp(String.raw`(naya|new|नया).{0,12}(product|item|saman|सामान|प्रोडक्ट|maal)|(product|item|saman|सामान|प्रोडक्ट).{0,30}${ADD_VERB}|add .{0,30}(product|item)`);
+/** "Rahul ne 1 kg cheeni li": a buyer, then what they took. */
+const BOUGHT = /(\bne\b|ने).{1,40}(\s|^)(li|liya|liye|le gaya|le gaye|le gayi|लिया|ली|लिए|ले गया)(\s|$)/;
+const SOLD = /(becha|beche|bechi|bech diya|bech diye|\bbika\b|\bbike\b|bik gaya|bik gaye|\bsold\b|sell kiya|sale (hui|hua|kiya|ki\b|karo|likho|add|darj)|kharida|kharidi|kharide|kharid liya|ne liya|ne liye|ne li\b|bill (banao|bana do|banaiye|likho)|बेचा|बेचे|बेची|बिका|बिके|खरीदा|खरीदी|खरीदे|बिल बनाओ)/;
 
 const DEV = "०१२३४५६७८९";
 const norm = (t: string) =>
@@ -132,6 +149,13 @@ export function matchIntent(input: string): IntentResult | null {
   // That is an offer proposal, never a payment reminder; "loyal customers ke liye offer" without a number stays a tips request.
   const pct = discountPctOf(t);
   if (DISCOUNT_WORD.test(t) && (pct !== undefined || /(reminder|message|msg|bhej|भेज|रिमाइंडर|send|banao|बनाओ|create)/.test(t))) return result("CREATE_OFFER", { discountPct: pct, audience: audienceOfText(t) }, pct ? 0.9 : 0.7);
+
+  // Creating records: a new customer or product, or a bill. Questions ("kitna becha?") fall through to the summaries below.
+  if (!QUESTION.test(t)) {
+    if (NEW_CUSTOMER.test(t) && !CREDIT_WORD.test(t)) return result("ADD_CUSTOMER");
+    if (NEW_PRODUCT.test(t)) return result("ADD_PRODUCT");
+    if ((SOLD.test(t) || BOUGHT.test(t)) && !/(udhaar|udhar|उधार)\s*(liya|li|liye|le gaya|le gaye|लिया)/.test(t)) return result("RECORD_SALE");
+  }
 
   const focus = FOCUS_WORDS.filter(([, re]) => re.test(t)).map(([f]) => f);
   const wantsTips = /tips?|tip do|idea|sujhav|सुझाव|टिप|offer|ऑफर|business kaise badh|dhanda kaise badh|धंधा|बिज़नेस|बिजनेस|grow|badhaun|badhau|बढ़ाऊं|बढ़ाएं|kya karu|kya karun|क्या करूं|what should i do/.test(t);
