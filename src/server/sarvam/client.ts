@@ -77,10 +77,10 @@ export function extractJson(text: string): unknown {
 }
 
 /** Structured parsing with the reasoning model. The caller must validate the result with Zod. */
-export async function sarvamJson(system: string, user: string): Promise<unknown> {
+export async function sarvamJson(system: string, user: string, maxTokens = 200): Promise<unknown> {
   // Classification into a fixed JSON shape needs no hidden reasoning: with it off the answer is ~20-60 tokens
   // (measured), so a 200-token cap is ample and a runaway reply cannot burn credits.
-  const text = await sarvamChat({ model: env.SARVAM_REASONING_MODEL, system, user, maxTokens: 200, temperature: 0, timeoutMs: 10_000, reasoningEffort: null });
+  const text = await sarvamChat({ model: env.SARVAM_REASONING_MODEL, system, user, maxTokens, temperature: 0, timeoutMs: 10_000, reasoningEffort: null });
   return text ? extractJson(text) : null;
 }
 

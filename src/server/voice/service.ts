@@ -3,7 +3,9 @@ import { db } from "@/lib/db";
 import { sarvamEnabled, sarvamJson } from "@/server/sarvam/client";
 import type { VoiceLanguage } from "@/lib/validation/tips";
 import { askData, type Turn } from "./ask";
-import { INTENTS, NEEDS_CONFIRMATION, SLOT_INTENTS, clarifyOffer, clarifyQuestion, fillSlots, fuzzyCustomers, intentSchema, matchIntent, missingOfferSlot, missingSlot, notFoundQuestion, unknownIntent, type Intent, type IntentResult, type Pending, type SlotIntent } from "./intent";
+import type { RecordDraft } from "@/lib/validation/records";
+import { draftRecord } from "./records";
+import { INTENTS, NEEDS_CONFIRMATION, RECORD_INTENTS, SLOT_INTENTS, clarifyOffer, clarifyQuestion, fillSlots, fuzzyCustomers, intentSchema, matchIntent, missingOfferSlot, missingSlot, notFoundQuestion, unknownIntent, type Intent, type IntentResult, type Pending, type RecordIntent, type SlotIntent } from "./intent";
 
 /**
  * Intent classification only, used when the free keyword matcher found nothing. The reply is Zod-validated
@@ -20,6 +22,7 @@ const SYSTEM = [
   "customerName: the name exactly as spoken; amountPaise: rupees x 100, only if a number was spoken; range: today|7d|30d; discountPct and audience as described for CREATE_OFFER.",
   "Commands may be Hindi in Devanagari, Hinglish in Roman letters, or English, with spelling mistakes from speech recognition (e.g. 'udar', 'bikri', 'kitna hua'). Understand the meaning, not the spelling.",
   "Use the recent conversation for follow-ups: 'aur pichle hafte?' after a sales question is GET_SALES_SUMMARY range 7d; 'uska?' refers to the last customer named.",
+  "ADD_PRODUCT=wants to add a new product to the shop's list (often with selling / buying price); ADD_CUSTOMER=wants to add a new customer (name, maybe phone); RECORD_SALE=tells you something was just sold or bought by a customer ('2 Maggi becha', 'Rahul ne 1 kg cheeni li, udhaar'). A question about past sales is GET_SALES_SUMMARY or ASK_DATA, never RECORD_SALE.",
   "REQUEST_REMINDER is ONLY asking a customer to repay udhaar. 'Credit overdue' is not a customer name.",
   "CREATE_OFFER=the owner wants a discount sent to a group of customers ('25% off for loyal customers', 'inactive customers ko 10 percent chhoot'): set discountPct (whole number 1-50, only if said) and audience (LOYAL=loyal/regular/best, INACTIVE=stopped coming, COOLING=not seen for 2-4 weeks, ACTIVE=recent buyers, ALL=everyone, only if said). Asking for ideas without a percentage is GET_TIPS.",
   "Customers are stored with English names; a name spoken or written in Hindi script is still a customerName, copy it as given.",
@@ -29,7 +32,8 @@ const SYSTEM = [
 
 export type CustomerMatch = { id: string; name: string; phone?: string | null; customerRef?: string | null };
 /** `pending` is set when the reply is a follow-up question; the client sends it back with the next turn. */
-export type InterpretResult = IntentResult & { customers?: CustomerMatch[]; pending?: Pending };
+/** `draft` pre-fills the on-screen review card for a new product, customer or sale; nothing is saved until the owner taps Save. */
+export type InterpretResult = IntentResult & { customers?: CustomerMatch[]; pending?: Pending; draft?: RecordDraft };
 
 /** Read-only questions answered from the fact sheet (in the owner's language) when Sarvam is configured. */
 const DATA_INTENTS: Intent[] = ["ASK_DATA", "GET_SALES_SUMMARY", "GET_INACTIVE_CUSTOMERS", "GET_CUSTOMER_BALANCE", "UNKNOWN"];
@@ -58,6 +62,11 @@ export async function interpret(merchant: Merchant, text: string, language: Voic
       r = { intent, params: d.params, confidence: Math.min(0.8, d.confidence), needsConfirmation: NEEDS_CONFIRMATION.includes(intent), source: "sarvam" };
     }
   }
+  if ((RECORD_INTENTS as readonly string[]).includes(r.intent)) {
+    const { draft, answer } = await draftRecord(merchant.id, r.intent as RecordIntent, text, language, findCustomers);
+    return { ...r, needsConfirmation: true, answer, draft };
+  }
+
   // An offer needs a percentage and a customer group; ask for whichever is missing. The offer itself is only prepared after the on-screen confirm.
   if (r.intent === "CREATE_OFFER") {
     const { discountPct, audience } = r.params;
@@ -89,7 +98,7 @@ export async function interpret(merchant: Merchant, text: string, language: Voic
 }
 
 /** Case-insensitive substring match first; if nothing matches, fuzzy matching for speech-recognition spellings. */
-async function findCustomers(merchantId: string, name: string): Promise<CustomerMatch[]> {
+export async function findCustomers(merchantId: string, name: string): Promise<CustomerMatch[]> {
   const select = { id: true, displayName: true, phone: true, customerRef: true } as const;
   const toMatch = (c: { id: string; displayName: string; phone: string | null; customerRef: string | null }) => ({ id: c.id, name: c.displayName, phone: c.phone, customerRef: c.customerRef });
   const exact = await db.customer.findMany({ where: { merchantId, displayName: { contains: name, mode: "insensitive" } }, select, orderBy: { displayName: "asc" }, take: 6 });

@@ -4,6 +4,8 @@ import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type
 import { Mic, Volume } from "@/components/ui/icons";
 import { useVoice, type VoiceLanguage } from "./use-voice";
 import { VoiceWave } from "./voice-wave";
+import { RecordDraftCard, type Saved } from "./record-draft-card";
+import type { RecordDraft } from "@/lib/validation/records";
 
 export type IntentResponse = {
   intent: string;
@@ -16,6 +18,8 @@ export type IntentResponse = {
   /** Set when the answer is a follow-up question; sent back with the next turn so the reply completes it. */
   pending?: Pending;
   customers?: { id: string; name: string; phone?: string | null; customerRef?: string | null }[];
+  /** A new product, customer or sale read from the command; shown as an editable card and saved only on tap. */
+  draft?: RecordDraft;
 };
 
 export type OfferAudience = "LOYAL" | "INACTIVE" | "COOLING" | "ACTIVE" | "ALL";
@@ -89,6 +93,9 @@ export function VoiceBar({ sarvam, placeholder, initialText, onCommand }: Props)
   const [actions, setActions] = useState<VoiceAction[]>([]);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [actionLink, setActionLink] = useState<{ href: string; label: string } | null>(null);
+  const [draft, setDraft] = useState<RecordDraft | null>(null);
+  /** Remounts the review card for every new command, so a second "2 Maggi becha" starts from fresh fields. */
+  const [draftId, setDraftId] = useState(0);
 
   /** One recording. Words appear in the box while speaking; the text is sent when auto-send is on or for push-to-talk. */
   async function startListening(pushToTalk: boolean) {
@@ -219,9 +226,16 @@ export function VoiceBar({ sarvam, placeholder, initialText, onCommand }: Props)
     }
   }
 
+  function onDraftSaved(s: Saved) {
+    setDraft(null);
+    finish(true, s.text);
+    setActionLink(s.link ?? null);
+  }
+
   async function ask(t: string, wasSpoken: boolean) {
     setBusy(true);
     setActions([]);
+    setDraft(null);
     setActionSuccess(null);
     setActionLink(null);
     let answerText: string;
@@ -230,6 +244,10 @@ export function VoiceBar({ sarvam, placeholder, initialText, onCommand }: Props)
       const res = await fetch("/api/voice/intent", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: t, language, history: turns.slice(-MAX_TURNS) }) });
       const data = (await res.json()) as IntentResponse & { error?: string };
       pending = res.ok ? data.pending : undefined;
+      if (res.ok && data.draft) {
+        setDraft(data.draft);
+        setDraftId((n) => n + 1);
+      }
       const rawAnswer = !res.ok ? (data.error ?? "Could not understand that. Please try again.") : data.answer ?? (await onCommand(data, t));
       answerText = typeof rawAnswer === "string" ? rawAnswer : rawAnswer.text;
       setActions(typeof rawAnswer === "object" && rawAnswer.actions ? rawAnswer.actions : []);
@@ -333,7 +351,7 @@ export function VoiceBar({ sarvam, placeholder, initialText, onCommand }: Props)
               <button type="button" onClick={() => void voice.speak(reply, language)} aria-label="Read aloud" className="text-[#4338CA] hover:text-[#3730A3]">
                 <Volume size={14} />
               </button>
-              <button type="button" onClick={() => { setTurns([]); setActions([]); setActionSuccess(null); setActionLink(null); }} className="text-[11px] font-medium text-[#737B8C] hover:text-[#171A23]">
+              <button type="button" onClick={() => { setTurns([]); setActions([]); setDraft(null); setActionSuccess(null); setActionLink(null); }} className="text-[11px] font-medium text-[#737B8C] hover:text-[#171A23]">
                 New chat
               </button>
             </div>
@@ -360,6 +378,8 @@ export function VoiceBar({ sarvam, placeholder, initialText, onCommand }: Props)
               </div>
             </div>
           )}
+
+          {draft ? <RecordDraftCard key={draftId} draft={draft} onSaved={onDraftSaved} onCancel={() => setDraft(null)} /> : null}
 
           {actionSuccess && (
             <div className={`mt-1 rounded-md p-2 text-xs font-medium ${/^(Failed|Network)/.test(actionSuccess) ? "bg-rose-50 text-rose-800" : "bg-emerald-50 text-emerald-800"}`}>
