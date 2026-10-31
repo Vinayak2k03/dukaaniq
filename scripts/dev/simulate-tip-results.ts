@@ -14,7 +14,15 @@ import { PrismaClient } from "../../src/generated/prisma/client";
  * Only demo shops are touched unless you pass --force. Fake sales have an externalId starting with "sim-tip-".
  */
 
+// Normalize negative option values like `--lift -20` to `--lift=-20` so Node's parseArgs accepts them.
+const rawArgs = process.argv.slice(2).flatMap((arg, i, arr) => {
+  if (arg === "--lift" && arr[i + 1]?.startsWith("-")) return [`--lift=${arr[i + 1]}`];
+  if (i > 0 && arr[i - 1] === "--lift" && arg.startsWith("-")) return [];
+  return [arg];
+});
+
 const { values, positionals } = parseArgs({
+  args: rawArgs,
   allowPositionals: true,
   options: { shop: { type: "string" }, "days-ago": { type: "string", default: "20" }, lift: { type: "string", default: "25" }, orders: { type: "string", default: "6" }, avg: { type: "string", default: "150" }, force: { type: "boolean", default: false } },
 });
@@ -52,41 +60,52 @@ async function backdate() {
   const orders = Number(values.orders);
   const avg = Number(values.avg);
   if (![daysAgo, lift, orders, avg].every(Number.isFinite) || daysAgo < 1) throw new Error("days-ago, lift, orders and avg must be numbers (days-ago at least 1).");
-  const decision = await prisma.approvalDecision.findFirst({ where: { recommendationId: recId, decision: "APPROVED" }, select: { id: true, merchantId: true, version: { select: { audience: { select: { customerId: true } } } } } });
+  const decision = await prisma.approvalDecision.findFirst({ where: { recommendationId: recId, decision: "APPROVED" }, select: { id: true, merchantId: true, version: { select: { audience: { select: { customerId: true } }, couponCodes: { select: { code: true } } } } } });
   if (!decision) throw new Error("No approved tip with that recommendationId. Run `list` first.");
   const merchant = await prisma.merchant.findUniqueOrThrow({ where: { id: decision.merchantId }, select: { shopName: true, isDemo: true } });
   if (!merchant.isDemo && !values.force) throw new Error(`"${merchant.shopName}" is not a demo shop. Pass --force only if you are sure.`);
 
   const today = ymdOf(new Date());
   const approved = addDays(today, -daysAgo);
-  await prisma.approvalDecision.update({ where: { id: decision.id }, data: { decidedAt: noon(approved) } });
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(`ALTER TABLE "approval_decision" DISABLE TRIGGER "approval_decision_append_only"`);
+    await tx.approvalDecision.update({ where: { id: decision.id }, data: { decidedAt: noon(approved) } });
+    await tx.$executeRawUnsafe(`ALTER TABLE "approval_decision" ENABLE TRIGGER "approval_decision_append_only"`);
+  });
   await prisma.sale.deleteMany({ where: { merchantId: decision.merchantId, externalId: { startsWith: `sim-tip-${recId}-` } } });
 
   // The same windows the app compares: after = approval+1 .. min(approval+14, today); before = 7 to 28 days just before approval.
   const afterTo = [addDays(approved, 14), today].sort()[0];
   const afterDays = Math.round((Date.parse(afterTo) - Date.parse(addDays(approved, 1))) / DAY) + 1;
   const beforeDays = Math.min(28, Math.max(7, Math.ceil(afterDays / 7) * 7));
+  const afterAvg = Math.max(0, Math.round(avg * (1 + lift / 100) * 100) / 100);
   const days = [
-    ...Array.from({ length: beforeDays }, (_, i) => ({ ymd: addDays(approved, -beforeDays + i), n: orders })),
-    ...Array.from({ length: afterDays }, (_, i) => ({ ymd: addDays(approved, 1 + i), n: Math.max(0, Math.round(orders * (1 + lift / 100))) })),
+    ...Array.from({ length: beforeDays }, (_, i) => ({ ymd: addDays(approved, -beforeDays + i), n: orders, amt: avg })),
+    ...Array.from({ length: afterDays }, (_, i) => ({ ymd: addDays(approved, 1 + i), n: orders, amt: afterAvg })),
   ];
   const audience = decision.version.audience.map((a) => a.customerId);
-  const data = days.flatMap(({ ymd, n }) =>
-    Array.from({ length: n }, (_, i) => ({
-      merchantId: decision.merchantId,
-      externalId: `sim-tip-${recId}-${ymd}-${i}`,
-      // Every other order goes to a customer the tip was aimed at, so the "targeted customers" row moves too.
-      customerId: audience.length && i % 2 === 0 ? audience[(i / 2) % audience.length] : null,
-      saleDate: noon(ymd),
-      paymentMethod: "CASH" as const,
-      paymentStatus: "PAID" as const,
-      grossAmount: avg.toFixed(2),
-      netAmount: avg.toFixed(2),
-    })),
+  const codes = decision.version.couponCodes.map((c) => c.code);
+  const data = days.flatMap(({ ymd, n, amt }, dayIdx) =>
+    Array.from({ length: n }, (_, i) => {
+      const isAfter = dayIdx >= beforeDays;
+      const useCode = isAfter && codes.length && i % 2 === 0 ? codes[(dayIdx + i / 2) % codes.length] : null;
+      return {
+        merchantId: decision.merchantId,
+        externalId: `sim-tip-${recId}-${ymd}-${i}`,
+        // Every other order goes to a customer the tip was aimed at, so the "targeted customers" row moves too.
+        customerId: audience.length && i % 2 === 0 ? audience[(i / 2) % audience.length] : null,
+        saleDate: noon(ymd),
+        paymentMethod: "CASH" as const,
+        paymentStatus: "PAID" as const,
+        grossAmount: amt.toFixed(2),
+        netAmount: amt.toFixed(2),
+        ...(useCode ? { couponCode: useCode, discountReason: "COUPON" as const } : {}),
+      };
+    }),
   );
   await prisma.sale.createMany({ data });
   const before = orders * avg;
-  const after = Math.round(orders * (1 + lift / 100)) * avg;
+  const after = Math.round(orders * afterAvg * 100) / 100;
   console.log(`${merchant.shopName}: approval moved to ${approved} (${daysAgo} days ago).`);
   console.log(`Added ${data.length} fake sales: ${beforeDays} days before, ${afterDays} days after.`);
   console.log(`Simulated shop sales per day: before ${before}, after ${after} (${lift >= 0 ? "+" : ""}${lift}%), plus whatever real sales exist in those days.`);

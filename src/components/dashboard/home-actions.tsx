@@ -1,8 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
-import { Mic } from "@/components/ui/icons";
-import { openAssistant } from "@/components/voice/assistant-dock";
+import { Mic, X } from "@/components/ui/icons";
+import { ShopAssistant } from "@/components/voice/shop-assistant";
 import { formatPaise } from "@/lib/money";
 
 export type HomeFacts = {
@@ -25,7 +26,9 @@ const TONE = {
 } as const;
 
 /** "What needs your attention today": a few cards with one button each, built from the shop's own numbers. */
-export function HomeActions({ facts }: { facts: HomeFacts }) {
+export function HomeActions({ facts, sarvam, referenceDate }: { facts: HomeFacts; sarvam: boolean; referenceDate: string }) {
+  const [panel, setPanel] = useState<{ open: boolean; id: number; text?: string }>({ open: false, id: 0 });
+  const openPanel = (text?: string) => setPanel((p) => ({ open: true, id: p.id + 1, text }));
   const cards: Card[] = [
     facts.overduePaise > 0
       ? { tone: "red", big: formatPaise(facts.overduePaise), text: `udhaar is overdue from ${facts.overdueCustomers} customer${facts.overdueCustomers === 1 ? "" : "s"}`, href: "/dashboard/action-centre", cta: "Prepare reminders" }
@@ -41,7 +44,7 @@ export function HomeActions({ facts }: { facts: HomeFacts }) {
     <section aria-label="What needs your attention today" className="space-y-3">
       <div className="flex flex-col gap-3 rounded-2xl bg-gradient-to-r from-[#312E81] to-[#4338CA] p-4 text-white sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
-          <button type="button" onClick={() => openAssistant()} aria-label="Open voice assistant" className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white text-[#4338CA] shadow-lg transition-transform hover:scale-105">
+          <button type="button" onClick={() => (panel.open ? setPanel((p) => ({ ...p, open: false })) : openPanel())} aria-label="Open voice assistant" className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white text-[#4338CA] shadow-lg transition-transform hover:scale-105">
             <Mic size={22} />
           </button>
           <div>
@@ -51,12 +54,27 @@ export function HomeActions({ facts }: { facts: HomeFacts }) {
         </div>
         <div className="flex flex-wrap gap-1.5">
           {SAY.map((s) => (
-            <button key={s} type="button" onClick={() => openAssistant(s)} className="rounded-full border border-white/30 bg-white/10 px-3 py-1 text-[11px] font-medium hover:bg-white/20">
+            <button key={s} type="button" onClick={() => openPanel(s)} className="rounded-full border border-white/30 bg-white/10 px-3 py-1 text-[11px] font-medium hover:bg-white/20">
               {s}
             </button>
           ))}
         </div>
       </div>
+
+      {panel.open ? (
+        <div role="region" aria-label="Shop assistant" className="rounded-2xl border border-[#E2E4E9] bg-white p-3 shadow-sm">
+          <div className="mb-2 flex items-center justify-between px-1">
+            <div>
+              <p className="text-sm font-bold text-[#171A23]">Bolkar batayein</p>
+              <p className="text-[11px] text-[#737B8C]">Speak or type. Nothing is saved until you tap Save.</p>
+            </div>
+            <button type="button" onClick={() => setPanel((p) => ({ ...p, open: false }))} aria-label="Close assistant" className="rounded-full p-1.5 text-[#525866] hover:bg-[#F4F5F7]">
+              <X size={18} />
+            </button>
+          </div>
+          <ShopAssistant key={panel.id} sarvam={sarvam} referenceDate={referenceDate} initialText={panel.text} examples={SAY} placeholder='Try "2 Maggi becha, cash"' />
+        </div>
+      ) : null}
 
       <h2 className="pt-1 text-sm font-bold text-[#171A23]">What needs your attention today</h2>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
