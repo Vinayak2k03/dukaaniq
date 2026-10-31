@@ -268,7 +268,7 @@ export default async function CustomerDetailPage({
                     <td className="py-3 pr-4 text-right font-mono tabular-nums text-emerald-700">
                       {s.discountAmount.gt(0)
                         ? `-${formatPaise(s.discountAmount.mul(100).toDecimalPlaces(0).toNumber())}`
-                        : "&mdash;"}
+                        : "—"}
                       {s.couponCode && (
                         <span className="ml-1 rounded bg-indigo-50 px-1 py-0.5 text-[10px] font-semibold text-indigo-700 border border-indigo-200">
                           {s.couponCode}

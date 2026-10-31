@@ -170,9 +170,9 @@ export default async function CustomersPage({
           icon={<Clock size={16} />}
         />
         <KpiCard
-          label="At-Risk &amp; Inactive"
+          label="At-Risk & Inactive"
           value={`${coolingCount + inactiveCount}`}
-          hint={`${coolingCount} cooling off &middot; ${inactiveCount} inactive`}
+          hint={`${coolingCount} cooling off · ${inactiveCount} inactive`}
           icon={<Filter size={16} />}
         />
         <KpiCard

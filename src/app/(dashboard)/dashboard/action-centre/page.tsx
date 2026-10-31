@@ -36,14 +36,14 @@ const GROUPS = [
   },
   {
     key: "APPROVED",
-    title: "Approved Proposals &amp; Ready for Queue",
+    title: "Approved Proposals & Ready for Queue",
     hint: "Approved by store owner and staged for recorded execution.",
     statuses: ["APPROVED", "EXECUTION_PENDING"],
     badgeVariant: "success" as const,
   },
   {
     key: "EXECUTED",
-    title: "Executed &amp; Verified Actions",
+    title: "Executed & Verified Actions",
     hint: "Simulated demo actions and delivery log. All events recorded in append-only audit trail.",
     statuses: ["SIMULATED", "SENT", "DELIVERED", "READ"],
     badgeVariant: "neutral" as const,

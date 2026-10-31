@@ -29,6 +29,12 @@ const isRealDate = (ymd: string) => toYmd(toMs(ymd)) === ymd;
 /** The Asia/Kolkata calendar day (YYYY-MM-DD) of an instant. */
 export const istYmd = (d: Date) => toYmd(d.getTime() + IST_OFFSET_MS);
 
+/** A plain inclusive day range with no reference-date limit (for before/after comparisons that run up to today). */
+export function rangeBetween(fromDate: string, toDate: string): ResolvedRange {
+  const days = daysBetween(fromDate, toDate) + 1;
+  return { key: "custom", fromDate, toDate, days, startUtc: new Date(toMs(fromDate) - IST_OFFSET_MS), endExclusiveUtc: new Date(toMs(toDate) + DAY_MS - IST_OFFSET_MS), granularity: "day" };
+}
+
 export const addDays = (ymd: string, n: number) => toYmd(toMs(ymd) + n * DAY_MS);
 
 export const referenceDateFor = (merchant: { isDemo: boolean }) =>

@@ -26,6 +26,7 @@ import { SEGMENT_RULES } from "@/server/analytics/queries";
 import { requireSession } from "@/server/auth/session";
 import { getCurrentMembership } from "@/server/merchant/access";
 import { listRecommendations } from "@/server/recommendations/service";
+import { ReapplyPanel } from "./reapply-panel";
 import { ShopAssistant } from "@/components/voice/shop-assistant";
 import { env } from "@/lib/env";
 
@@ -291,6 +292,8 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
               <p className="text-[10px] text-[#94A3B8]">&gt;30 days without order</p>
             </div>
           </div>
+
+          <ReapplyPanel merchantId={merchant.id} />
 
           {/* 3. Action Centre shortcut */}
           <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#E2E4E9] bg-white px-5 py-3.5 shadow-[0_1px_2px_rgba(16,24,40,0.03)] text-xs">

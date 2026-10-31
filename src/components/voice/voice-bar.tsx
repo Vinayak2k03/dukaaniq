@@ -17,6 +17,8 @@ export type IntentResponse = {
   answer?: string;
   /** Set when the answer is a follow-up question; sent back with the next turn so the reply completes it. */
   pending?: Pending;
+  /** The customer being discussed and any open sale draft; sent back with the next command. */
+  context?: SessionContext;
   customers?: { id: string; name: string; phone?: string | null; customerRef?: string | null }[];
   /** A new product, customer or sale read from the command; shown as an editable card and saved only on tap. */
   draft?: RecordDraft;
@@ -50,9 +52,11 @@ type Props = {
 
 const newKey = () => `voice:${Date.now()}:${Math.random().toString(36).slice(2, 9)}`;
 
-/** The conversation keeps the last 3 exchanges; older ones drop off so follow-ups stay focused. */
-const MAX_TURNS = 3;
-type Turn = { user: string; assistant: string; pending?: Pending };
+/** The chat shows the last 3 exchanges, but the whole session (up to 12) is sent with each command, so "uska kitna?" still works after more than 3 messages. */
+const SHOWN_TURNS = 3;
+const SESSION_TURNS = 12;
+type SessionContext = { customerName?: string; saleText?: string };
+type Turn = { user: string; assistant: string; pending?: Pending; ctx?: SessionContext };
 const HOLD_MS = 250;
 const AUTO_SEND_KEY = "dukaaniq:voice-auto-send";
 const subscribeStorage = (cb: () => void) => {
@@ -226,8 +230,14 @@ export function VoiceBar({ sarvam, placeholder, initialText, onCommand }: Props)
     }
   }
 
+  /** The sale is no longer open, so a later "aur ek dal" starts a new command instead of amending it. */
+  function closeSale() {
+    setTurns((all) => all.map((t, i) => (i === all.length - 1 && t.ctx?.saleText ? { ...t, ctx: { ...t.ctx, saleText: undefined } } : t)));
+  }
+
   function onDraftSaved(s: Saved) {
     setDraft(null);
+    closeSale();
     finish(true, s.text);
     setActionLink(s.link ?? null);
   }
@@ -240,10 +250,12 @@ export function VoiceBar({ sarvam, placeholder, initialText, onCommand }: Props)
     setActionLink(null);
     let answerText: string;
     let pending: Pending | undefined;
+    let ctx: SessionContext | undefined;
     try {
-      const res = await fetch("/api/voice/intent", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: t, language, history: turns.slice(-MAX_TURNS) }) });
+      const res = await fetch("/api/voice/intent", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: t, language, history: turns.slice(-SESSION_TURNS) }) });
       const data = (await res.json()) as IntentResponse & { error?: string };
       pending = res.ok ? data.pending : undefined;
+      ctx = res.ok ? data.context : undefined;
       if (res.ok && data.draft) {
         setDraft(data.draft);
         setDraftId((n) => n + 1);
@@ -258,7 +270,7 @@ export function VoiceBar({ sarvam, placeholder, initialText, onCommand }: Props)
       setBusy(false);
       setSpoken(false);
     }
-    setTurns((all) => [...all, { user: t, assistant: answerText, pending }].slice(-MAX_TURNS));
+    setTurns((all) => [...all, { user: t, assistant: answerText, pending, ctx: ctx ?? { customerName: all.findLast((x) => x.ctx?.customerName)?.ctx?.customerName } }].slice(-SESSION_TURNS));
     setText("");
   }
 
@@ -334,7 +346,7 @@ export function VoiceBar({ sarvam, placeholder, initialText, onCommand }: Props)
       {voice.error ? <p role="alert" className="mt-2 text-xs text-rose-700">{voice.error}</p> : null}
       {turns.length > 1 && (
         <div className="mt-2 space-y-2">
-          {turns.slice(0, -1).map((t, i) => (
+          {turns.slice(-SHOWN_TURNS, -1).map((t, i) => (
             <div key={i} className="space-y-1 text-xs">
               <p className="ml-auto w-fit max-w-[85%] rounded-lg bg-indigo-50 px-3 py-1.5 text-[#312E81]">{t.user}</p>
               <p className="w-fit max-w-[85%] whitespace-pre-wrap rounded-lg bg-[#F8F9FB] px-3 py-1.5 leading-relaxed text-[#525866]">{t.assistant}</p>
@@ -379,7 +391,7 @@ export function VoiceBar({ sarvam, placeholder, initialText, onCommand }: Props)
             </div>
           )}
 
-          {draft ? <RecordDraftCard key={draftId} draft={draft} onSaved={onDraftSaved} onCancel={() => setDraft(null)} /> : null}
+          {draft ? <RecordDraftCard key={draftId} draft={draft} onSaved={onDraftSaved} onCancel={() => { setDraft(null); closeSale(); }} /> : null}
 
           {actionSuccess && (
             <div className={`mt-1 rounded-md p-2 text-xs font-medium ${/^(Failed|Network)/.test(actionSuccess) ? "bg-rose-50 text-rose-800" : "bg-emerald-50 text-emerald-800"}`}>

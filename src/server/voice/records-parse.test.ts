@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { matchIntent } from "./intent";
-import { parseCustomerText, parseProductText, parseSaleText, paymentOf } from "./records-parse";
+import { amendSale, parseCustomerText, parseProductText, parseSaleText, paymentOf } from "./records-parse";
 
 const intentOf = (t: string) => matchIntent(t)?.intent ?? null;
 
@@ -53,4 +53,29 @@ test("product text reads selling and buying price", () => {
 test("customer text reads name and phone", () => {
   assert.deepEqual(parseCustomerText("Rahul Sharma naam ka customer add karo, number 98765 43210"), { name: "rahul sharma", phone: "9876543210" });
   assert.equal(parseCustomerText("add customer Priya").name, "priya");
+});
+
+test("filler like 'li' / 'par' is not part of the product name", () => {
+  assert.equal(parseSaleText("सानवी ने एक किलो शुगर ली उधार पर").lines[0].heard, "शुगर");
+  assert.equal(parseSaleText("Rahul ne 1 kg cheeni li udhaar par").lines[0].heard, "cheeni");
+});
+
+test("payment words and other filler never end up in a product name", () => {
+  const heard = (t: string) => parseSaleText(t).lines.map((l) => l.heard);
+  assert.deepEqual(heard("2 Maggi aur 1 Parle-G becha cash me"), ["maggi", "parle-g"]);
+  assert.deepEqual(heard("राहुल को दो किलो चीनी दी खाते में"), ["चीनी"]);
+  assert.deepEqual(heard("ek packet dal bhi de do upi se"), ["dal"]);
+  assert.deepEqual(heard("आधा किलो आटा दिया नकद"), ["आटा"]);
+  assert.equal(parseSaleText("Rahul ne 1 kg chini li udhaar par").payment, "UDHAAR");
+});
+
+test("short follow-ups amend the open sale draft", () => {
+  const open = "सानवी ने एक किलो शुगर ली उधार पर";
+  assert.equal(amendSale(open, "aur ek packet dal bhi", undefined), `${open}, aur ek packet dal bhi`);
+  const paid = amendSale(open, "cash me", undefined)!;
+  assert.equal(parseSaleText(paid).payment, "CASH");
+  assert.deepEqual(parseSaleText(paid).lines.map((l) => l.heard), ["शुगर"]);
+  assert.equal(amendSale(open, "aaj kitna becha", "GET_SALES_SUMMARY"), null);
+  assert.equal(amendSale(undefined, "cash me", undefined), null);
+  assert.equal(amendSale(open, "Rahul ne 2 Maggi li", "RECORD_SALE"), null);
 });
