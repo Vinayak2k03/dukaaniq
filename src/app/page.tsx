@@ -137,29 +137,29 @@ export default async function Home() {
                 <span className="h-3 w-3 rounded-full bg-emerald-400" />
                 <span className="ml-2 font-mono text-xs text-[#737B8C]">dukaaniq.internal / command-centre</span>
               </div>
-              <Badge variant="brand" size="sm">Neon Postgres Live</Badge>
+              <Badge variant="neutral" size="sm">Illustrative preview</Badge>
             </div>
 
             <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3 text-left">
               <div className="rounded-lg border border-[#E2E4E9] bg-white p-3.5">
                 <p className="text-[11px] font-semibold uppercase text-[#737B8C]">Net Revenue</p>
-                <p className="font-mono text-lg font-bold text-[#171A23] tabular-nums mt-1">₹4,82,410.50</p>
-                <p className="text-[10px] text-emerald-700 font-semibold mt-1">+14.2% vs last month</p>
+                <p className="font-mono text-lg font-bold text-[#171A23] tabular-nums mt-1">₹1,75,059.93</p>
+                <p className="text-[10px] text-emerald-700 font-semibold mt-1">Sample figures, not live</p>
               </div>
               <div className="rounded-lg border border-[#E2E4E9] bg-white p-3.5">
                 <p className="text-[11px] font-semibold uppercase text-[#737B8C]">Completed Orders</p>
-                <p className="font-mono text-lg font-bold text-[#171A23] tabular-nums mt-1">970 sales</p>
-                <p className="text-[10px] text-[#737B8C] mt-1">Verified checkout logs</p>
+                <p className="font-mono text-lg font-bold text-[#171A23] tabular-nums mt-1">868 paid orders</p>
+                <p className="text-[10px] text-[#737B8C] mt-1">Paid sales only</p>
               </div>
               <div className="rounded-lg border border-[#E2E4E9] bg-white p-3.5">
-                <p className="text-[11px] font-semibold uppercase text-[#737B8C]">Active Shoppers</p>
-                <p className="font-mono text-lg font-bold text-[#171A23] tabular-nums mt-1">120 profiles</p>
-                <p className="text-[10px] text-[#737B8C] mt-1">CRM recency mapped</p>
+                <p className="text-[11px] font-semibold uppercase text-[#737B8C]">Customers</p>
+                <p className="font-mono text-lg font-bold text-[#171A23] tabular-nums mt-1">120 customers</p>
+                <p className="text-[10px] text-[#737B8C] mt-1">Segmented by last visit</p>
               </div>
               <div className="rounded-lg border border-[#E2E4E9] bg-white p-3.5">
-                <p className="text-[11px] font-semibold uppercase text-[#737B8C]">AI Approvals Waiting</p>
-                <p className="font-mono text-lg font-bold text-[#4338CA] tabular-nums mt-1">7 proposals</p>
-                <p className="text-[10px] text-indigo-700 font-semibold mt-1">Action Centre Staged</p>
+                <p className="text-[11px] font-semibold uppercase text-[#737B8C]">Approval First</p>
+                <p className="font-mono text-lg font-bold text-[#4338CA] tabular-nums mt-1">You decide</p>
+                <p className="text-[10px] text-indigo-700 font-semibold mt-1">Nothing is sent unapproved</p>
               </div>
             </div>
           </div>
