@@ -681,6 +681,9 @@ model TipSession {
   candidates    Json
   shownKeys     String[] @default([])
   feedback      Json
+  // Wording-complete drafts of the tips shown in this session, keyed by tip key. A tip becomes a recommendation only
+  // when the owner approves it; a rejection is recorded here and no recommendation row is ever created for it.
+  drafts        Json     @default("{}")
   llmCalls      Int      @default(0)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt

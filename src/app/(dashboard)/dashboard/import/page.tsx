@@ -20,6 +20,18 @@ import {
 
 export const metadata: Metadata = { title: "Workbook Importer" };
 
+/** One-line summary of what a run inserted, read from the stored run record. */
+function summarizeRun(summary: unknown): string {
+  if (!summary || typeof summary !== "object") return "No summary recorded";
+  const parts = Object.entries(summary as Record<string, unknown>).flatMap(([k, v]) => {
+    const o = v as { inserted?: unknown; skipped?: unknown } | null;
+    return o && typeof o === "object" && typeof o.inserted === "number"
+      ? [`${k}: ${o.inserted} added${typeof o.skipped === "number" && o.skipped ? `, ${o.skipped} already present` : ""}`]
+      : [];
+  });
+  return parts.length ? parts.join(" · ") : "No summary recorded";
+}
+
 export default async function WorkbookImporterPage() {
   const session = await requireSession();
   const membership = await getCurrentMembership(session.user.id);
@@ -147,26 +159,23 @@ export default async function WorkbookImporterPage() {
         title="Upload Retail Dataset Workbook"
         subtitle="Drag & drop your DukaanIQ retail workbook or browse local storage"
       >
-        <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-[#CBD5E1] bg-[#FAFBFD] p-10 text-center transition-colors hover:border-[#4338CA] hover:bg-indigo-50/20">
+        <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-[#CBD5E1] bg-[#FAFBFD] p-10 text-center transition-colors ">
           <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-50 text-[#4338CA] shadow-2xs">
             <UploadCloud size={28} />
           </div>
 
           <h3 className="mt-4 text-sm font-bold text-[#171A23]">
-            Drop your DukaanIQ Excel workbook here
+            Workbook import runs from the command line
           </h3>
           <p className="mt-1 max-w-sm text-xs text-[#737B8C] leading-relaxed">
-            Accepts <strong className="text-[#171A23]">.xlsx</strong> spreadsheets up to 25MB. Must conform to DukaanIQ multi-sheet schema.
+            Run <code className="font-mono text-[#4338CA]">npm run db:seed</code> on the server to import an <strong className="text-[#171A23]">.xlsx</strong> workbook. It validates every sheet first and can be re-run without creating duplicates. The history below is read from the database.
           </p>
 
           <div className="mt-5 flex flex-wrap items-center gap-3">
-            <label className="inline-flex items-center gap-2 rounded-lg bg-[#4338CA] px-4 py-2 text-xs font-semibold text-white shadow-xs hover:bg-[#3730A3] transition-colors cursor-pointer">
+            <span className="inline-flex items-center gap-2 rounded-lg bg-[#F4F5F7] px-4 py-2 text-xs font-semibold text-[#737B8C]">
               <UploadCloud size={14} />
-              <span>Browse File</span>
-              <input type="file" accept=".xlsx,.xls" className="sr-only" />
-            </label>
-
-            <span className="text-xs text-[#94A3B8]">&mdash; or &mdash;</span>
+              Browser upload is not available
+            </span>
 
             <span className="text-xs text-[#525866] font-medium">
               Demo dataset currently active: <code className="font-mono text-[#4338CA]">DukaanIQ_Dataset_V2.xlsx</code>
@@ -246,7 +255,7 @@ export default async function WorkbookImporterPage() {
                       </span>
                     </td>
                     <td className="py-3 text-right font-mono text-[11px] text-[#737B8C]">
-                      {r.summary ? JSON.stringify(r.summary) : "970 sales &middot; 120 customers &middot; 74 credit"}
+                      {summarizeRun(r.summary)}
                     </td>
                   </tr>
                 ))}

@@ -170,6 +170,15 @@ export async function createReminderForCustomer(merchant: Merchant, actor: Actor
   }, TX);
 }
 
+/** Records the approval, flips the status and issues coupon codes. The caller holds the recommendation row (or just created it) inside `tx`. */
+async function approveInTx(tx: Tx, merchantId: string, actorId: string, rec: { id: string; currentVersion: number }, versionId: string) {
+  await tx.approvalDecision.create({ data: { merchantId, recommendationId: rec.id, versionId, decision: "APPROVED", actorId } });
+  await tx.recommendation.update({ where: { id: rec.id }, data: { status: "APPROVED" } });
+  // Codes exist only from this point: never for a pending, rejected or alternative-in-review version.
+  const couponCodes = await issueCouponCodes(tx, merchantId, versionId);
+  await tx.auditEvent.create({ data: { merchantId, actorId, eventType: "APPROVED", entityType: "recommendation", entityId: rec.id, entityVersion: rec.currentVersion, metadata: { couponCodes } } });
+}
+
 export async function approveRecommendation(merchant: Merchant, actor: Actor, input: { recommendationId: string; version: number }): Promise<Result> {
   return db.$transaction(async (tx): Promise<Result> => {
     const rec = await lockRecommendation(tx, merchant.id, input.recommendationId);
@@ -178,13 +187,20 @@ export async function approveRecommendation(merchant: Merchant, actor: Actor, in
     if (rec.currentVersion !== input.version) return fail("This recommendation changed. Reload the page and review it again.");
     const version = await tx.recommendationVersion.findUnique({ where: { recommendationId_version: { recommendationId: rec.id, version: rec.currentVersion } }, select: { id: true } });
     if (!version) return fail("Recommendation version not found.");
-    await tx.approvalDecision.create({ data: { merchantId: merchant.id, recommendationId: rec.id, versionId: version.id, decision: "APPROVED", actorId: actor.userId } });
-    await tx.recommendation.update({ where: { id: rec.id }, data: { status: "APPROVED" } });
-    // Codes exist only from this point: never for a pending, rejected or alternative-in-review version.
-    const couponCodes = await issueCouponCodes(tx, merchant.id, version.id);
-    await tx.auditEvent.create({ data: { merchantId: merchant.id, actorId: actor.userId, eventType: "APPROVED", entityType: "recommendation", entityId: rec.id, entityVersion: rec.currentVersion, metadata: { couponCodes } } });
+    await approveInTx(tx, merchant.id, actor.userId, rec, version.id);
     return { ok: true };
   }, TX);
+}
+
+/**
+ * A growth tip the owner approved straight from the tips screen. The recommendation is created and approved in the same
+ * transaction, so it never exists as PENDING_APPROVAL. Tips the owner does not approve are never written here at all.
+ */
+export async function createApprovedRecommendation(tx: Tx, merchant: Merchant, actor: Actor, draft: Draft): Promise<string> {
+  const id = await persistDraft(tx, merchant.id, actor.userId, draft);
+  const version = await tx.recommendationVersion.findUniqueOrThrow({ where: { recommendationId_version: { recommendationId: id, version: 1 } }, select: { id: true } });
+  await approveInTx(tx, merchant.id, actor.userId, { id, currentVersion: 1 }, version.id);
+  return id;
 }
 
 export async function rejectRecommendation(merchant: Merchant, actor: Actor, input: { recommendationId: string; version: number; reason: DeclineReason; note?: string }): Promise<Result> {

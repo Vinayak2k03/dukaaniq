@@ -319,7 +319,7 @@ export function romanize(text: string): string {
 }
 
 /** Collapses common speech-to-text spelling variants (aa/a, ee/i, sh/s, w/v, doubled letters). */
-const phonetic = (s: string) =>
+export const phonetic = (s: string) =>
   romanize(s).toLowerCase().normalize("NFKC").replace(/aa/g, "a").replace(/ee|ii/g, "i").replace(/oo|uu/g, "u").replace(/sh/g, "s").replace(/w/g, "v").replace(/ph/g, "f").replace(/(.)\1+/g, "$1").replace(/[^\p{L}\p{M} ]/gu, "").trim();
 
 /**

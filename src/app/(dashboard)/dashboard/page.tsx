@@ -14,10 +14,10 @@ import {
   Users,
   Wallet,
   Clock,
-  CheckCircle2,
   AlertCircle,
   ExternalLink,
 } from "@/components/ui/icons";
+import { db } from "@/lib/db";
 import { formatDateTimeIST, formatLocalDate, formatPaise } from "@/lib/money";
 import { parseDashboardQuery } from "@/lib/validation/dashboard";
 import { categoryLabel } from "@/lib/validation/merchant";
@@ -26,6 +26,7 @@ import { SEGMENT_RULES } from "@/server/analytics/queries";
 import { requireSession } from "@/server/auth/session";
 import { getCurrentMembership } from "@/server/merchant/access";
 import { listRecommendations } from "@/server/recommendations/service";
+import { ReapplyPanel } from "./reapply-panel";
 import { ShopAssistant } from "@/components/voice/shop-assistant";
 import { env } from "@/lib/env";
 
@@ -74,14 +75,23 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
 
   let data: Awaited<ReturnType<typeof getDashboardData>> | null = null;
   let recommendations: Awaited<ReturnType<typeof listRecommendations>> = [];
+  let demoCounts: { sales: number; customers: number; credit: number } | null = null;
 
   try {
-    const [dashData, recs] = await Promise.all([
+    const [dashData, recs, counts] = await Promise.all([
       getDashboardData(merchant, range, referenceDate, query.category),
       listRecommendations(merchant.id).catch(() => []),
+      merchant.isDemo
+        ? Promise.all([
+            db.sale.count({ where: { merchantId: merchant.id } }),
+            db.customer.count({ where: { merchantId: merchant.id } }),
+            db.creditEntry.count({ where: { merchantId: merchant.id } }),
+          ])
+        : null,
     ]);
     data = dashData;
     recommendations = recs;
+    if (counts) demoCounts = { sales: counts[0], customers: counts[1], credit: counts[2] };
   } catch (e) {
     console.error("Dashboard failed to load:", e);
   }
@@ -104,7 +114,6 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
 
   // Pending recommendations
   const pendingRecs = recommendations.filter((r) => r.status === "PENDING_APPROVAL");
-  const topPending = pendingRecs[0];
 
   // Total customer base calculation
   const totalCustomers = data
@@ -163,7 +172,11 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
               i
             </span>
             <span>
-              <strong>Demo store with verified synthetic data:</strong> All 970 sales, 120 customers and 74 credit ledger rows represent real historical retail patterns.
+              <strong>Demo store &mdash; synthetic, illustrative data.</strong> Names, phone numbers and sales are made up
+              {demoCounts
+                ? ` (${demoCounts.sales.toLocaleString("en-IN")} sales, ${demoCounts.customers.toLocaleString("en-IN")} customers, ${demoCounts.credit.toLocaleString("en-IN")} credit entries)`
+                : ""}
+              . No real message is ever sent to these customers.
             </span>
           </div>
           <span className="shrink-0 font-mono text-[11px] text-amber-700">Reference: {referenceDate}</span>
@@ -171,7 +184,7 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
       )}
 
       {/* Filter Bar */}
-      <FilterBar query={{ ...query, range: range.key }} categories={data?.categories ?? []} />
+      <FilterBar key={`${range.fromDate}|${range.toDate}`} query={{ ...query, range: range.key }} categories={data?.categories ?? []} referenceDate={referenceDate} fromDate={range.fromDate} toDate={range.toDate} />
 
       {filterError && (
         <div role="alert" className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">
@@ -280,66 +293,31 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
             </div>
           </div>
 
-          {/* 3. AI Recommendations Command Spotlight */}
-          {topPending ? (
-            <section className="relative overflow-hidden rounded-xl border border-indigo-200 bg-gradient-to-r from-indigo-50/70 via-white to-indigo-50/40 p-5 shadow-[0_2px_6px_rgba(67,56,202,0.05)]">
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div className="flex items-start gap-3.5">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#4338CA] text-white shadow-[0_2px_4px_rgba(67,56,202,0.3)]">
-                    <Sparkles size={20} />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="rounded bg-[#4338CA] px-2 py-0.5 text-[10px] font-bold tracking-wide text-white uppercase">
-                        AI Priority Proposal
-                      </span>
-                      <span className="text-xs text-[#737B8C]">
-                        {pendingRecs.length} proposal{pendingRecs.length > 1 ? "s" : ""} waiting for decision
-                      </span>
-                    </div>
-                    <h2 className="mt-1.5 text-base font-bold text-[#171A23]">{topPending.title}</h2>
-                    <p className="mt-0.5 text-xs text-[#525866]">
-                      Targeting <strong className="font-semibold text-[#171A23]">{topPending.audienceSize} customer(s)</strong> with calculated evidence from ledger records. DukaanIQ never contacts customers without your explicit approval.
-                    </p>
-                  </div>
-                </div>
+          <ReapplyPanel merchantId={merchant.id} />
 
-                <div className="flex items-center gap-2.5">
-                  <Link
-                    href={`/dashboard/action-centre/${topPending.id}`}
-                    className="inline-flex items-center gap-2 rounded-lg bg-[#4338CA] px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-[#3730A3] transition-colors"
-                  >
-                    <span>Review &amp; Approve</span>
-                    <ArrowRight size={14} />
-                  </Link>
-                  <Link
-                    href="/dashboard/action-centre"
-                    className="rounded-lg border border-[#D0D5DD] bg-white px-3 py-2 text-xs font-medium text-[#171A23] hover:bg-[#F8F9FA] transition-colors"
-                  >
-                    View All ({recommendations.length})
-                  </Link>
-                </div>
+          {/* 3. Action Centre shortcut */}
+          <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#E2E4E9] bg-white px-5 py-3.5 shadow-[0_1px_2px_rgba(16,24,40,0.03)] text-xs">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-[#4338CA]">
+                <Sparkles size={16} />
               </div>
-            </section>
-          ) : (
-            <div className="flex items-center justify-between rounded-xl border border-[#E2E4E9] bg-white px-5 py-3.5 shadow-[0_1px_2px_rgba(16,24,40,0.03)] text-xs">
-              <div className="flex items-center gap-2.5">
-                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
-                  <CheckCircle2 size={16} />
-                </div>
-                <div>
-                  <span className="font-semibold text-[#171A23]">All AI proposals resolved</span>
-                  <span className="text-[#737B8C] ml-2">No recommendations currently waiting for approval.</span>
-                </div>
+              <div>
+                <span className="font-semibold text-[#171A23]">Action Centre</span>
+                <span className="ml-2 text-[#737B8C]">
+                  {pendingRecs.length
+                    ? `${pendingRecs.length} action${pendingRecs.length > 1 ? "s" : ""} waiting for your decision`
+                    : "Nothing waiting for your decision."}
+                </span>
               </div>
-              <Link
-                href="/dashboard/udhaar"
-                className="font-medium text-[#4338CA] hover:underline"
-              >
-                Scan overdue udhaar &rarr;
-              </Link>
             </div>
-          )}
+            <Link
+              href="/dashboard/action-centre"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[#4338CA] px-3.5 py-1.5 font-semibold text-white shadow-sm hover:bg-[#3730A3] transition-colors"
+            >
+              <span>Open Action Centre</span>
+              <ArrowRight size={13} />
+            </Link>
+          </section>
 
           {/* 4. Analytics Section: Revenue & Order Trends */}
           {data.summary.orders === 0 ? (

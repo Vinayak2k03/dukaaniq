@@ -23,13 +23,13 @@ export function prepareRange(merchant: DashboardMerchant, query: DashboardQuery)
 export async function getDashboardData(merchant: DashboardMerchant, range: ResolvedRange, referenceDate: string, category?: string) {
   const id = merchant.id;
   const [summary, trend, products, categories, paymentMix, recency, recentSales] = await Promise.all([
-    getSummary(id, range),
-    getSalesTrend(id, range),
+    getSummary(id, range, category),
+    getSalesTrend(id, range, category),
     getProductStats(id, range, category),
     getCategories(id),
-    getPaymentMix(id, range),
+    getPaymentMix(id, range, category),
     getCustomerRecency(id, referenceDate),
-    getRecentSales(id, range),
+    getRecentSales(id, range, 10, category),
   ]);
   return { summary, trend, products, categories, paymentMix, segments: countSegments(recency), inactiveCount: inactiveCustomers(recency).length, recentSales };
 }

@@ -112,7 +112,7 @@ export default async function RecoverCustomersPage() {
                     </td>
 
                     <td className="py-3 pr-4 text-[#525866]">
-                      {c.lastPurchaseDate ? formatLocalDate(c.lastPurchaseDate) : "&mdash;"}
+                      {c.lastPurchaseDate ? formatLocalDate(c.lastPurchaseDate) : "—"}
                     </td>
 
                     <td className="py-3 pr-4 text-center font-mono">

@@ -3,11 +3,12 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { formatDateTimeIST, formatLocalDate, formatPaise } from "@/lib/money";
-import { referenceDateFor } from "@/server/analytics/range";
+import { daysBetween, istYmd, referenceDateFor } from "@/server/analytics/range";
 import { SEGMENT_RULES } from "@/server/analytics/queries";
 import { requireSession } from "@/server/auth/session";
 import { getCurrentMembership } from "@/server/merchant/access";
 import { Badge } from "@/components/ui/badge";
+import { EditProfile } from "./edit-profile";
 import { Panel, EmptyState } from "@/components/dashboard/panel";
 import { KpiCard } from "@/components/dashboard/kpi-card";
 import {
@@ -75,13 +76,12 @@ export default async function CustomerDetailPage({
 
   // Last purchase date
   const lastSale = paidSales[0];
-  const lastPurchaseDate = lastSale ? lastSale.saleDate.toISOString().slice(0, 10) : null;
+  const lastPurchaseDate = lastSale ? istYmd(lastSale.saleDate) : null;
   let daysSince: number | null = null;
   let segment = "NO_PURCHASE";
 
   if (lastPurchaseDate) {
-    const msDiff = Date.parse(refDate) - Date.parse(lastPurchaseDate);
-    daysSince = Math.max(0, Math.floor(msDiff / 86_400_000));
+    daysSince = Math.max(0, daysBetween(lastPurchaseDate, refDate));
     if (daysSince <= SEGMENT_RULES.activeMaxDays) segment = "ACTIVE";
     else if (daysSince <= SEGMENT_RULES.coolingMaxDays) segment = "COOLING_OFF";
     else segment = "INACTIVE";
@@ -156,7 +156,8 @@ export default async function CustomerDetailPage({
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5">
+          <div className="flex flex-wrap items-start gap-2.5">
+            <EditProfile customer={{ id: customer.id, displayName: customer.displayName, phone: customer.phone, preferredLanguage: customer.preferredLanguage }} />
             <Link
               href={`/dashboard/udhaar/${customer.id}`}
               className="inline-flex items-center gap-1.5 rounded-lg border border-[#D0D5DD] bg-white px-3.5 py-2 text-xs font-semibold text-[#171A23] shadow-xs hover:bg-[#F8F9FA] transition-colors"
@@ -267,7 +268,7 @@ export default async function CustomerDetailPage({
                     <td className="py-3 pr-4 text-right font-mono tabular-nums text-emerald-700">
                       {s.discountAmount.gt(0)
                         ? `-${formatPaise(s.discountAmount.mul(100).toDecimalPlaces(0).toNumber())}`
-                        : "&mdash;"}
+                        : "—"}
                       {s.couponCode && (
                         <span className="ml-1 rounded bg-indigo-50 px-1 py-0.5 text-[10px] font-semibold text-indigo-700 border border-indigo-200">
                           {s.couponCode}

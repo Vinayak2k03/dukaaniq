@@ -22,7 +22,7 @@ const FAMILY: Record<string, { label: string; variant: "brand" | "success" | "wa
 };
 const LANG: Record<string, string> = { HINDI: "Hindi", HINGLISH: "Hinglish", ENGLISH: "English" };
 
-type Feedback = { recommendationId?: string; reason?: string; note?: string };
+type Feedback = { tipKey?: string; reason?: string; note?: string };
 type TipsReply = { sessionId: string; batch: TipCard[]; remaining: number; feedbackNotes: string[] };
 
 const SESSION_KEY = "dukaaniq:tips-session";
@@ -90,7 +90,42 @@ function Economics({ e }: { e: TipCard["economics"] }) {
   );
 }
 
-function Card({ t }: { t: TipCard }) {
+type Decision = { state: "approved"; recommendationId: string } | { state: "rejected" };
+
+function Card({ t, sessionId, decision, onDecide }: { t: TipCard; sessionId: string; decision?: Decision; onDecide: (key: string, d: Decision) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [rejecting, setRejecting] = useState(false);
+  const [reason, setReason] = useState("BENEFIT_UNCLEAR");
+  const [note, setNote] = useState("");
+
+  async function post(path: string, body: Record<string, unknown>) {
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId, key: t.key, ...body }) });
+      const data = (await res.json()) as { error?: string; recommendationId?: string };
+      if (!res.ok) {
+        setErr(data.error ?? "Something went wrong. Please try again.");
+        return null;
+      }
+      return data;
+    } catch {
+      setErr("Could not reach DukaanIQ. Check your connection and try again.");
+      return null;
+    } finally {
+      setBusy(false);
+    }
+  }
+  const approve = async () => {
+    const d = await post("/api/tips/approve", { confirmed: true });
+    if (d?.recommendationId) onDecide(t.key, { state: "approved", recommendationId: d.recommendationId });
+  };
+  const reject = async () => {
+    if (reason === "OTHER" && !note.trim()) return setErr("Please explain the reason.");
+    if (await post("/api/tips/reject", { reason, ...(note.trim() ? { note: note.trim() } : {}) })) onDecide(t.key, { state: "rejected" });
+  };
+
   const fam = FAMILY[t.family] ?? { label: t.family, variant: "neutral" as const };
   return (
     <article className="flex flex-col rounded-xl border border-[#E2E4E9] bg-white shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
@@ -98,7 +133,7 @@ function Card({ t }: { t: TipCard }) {
         <div className="flex flex-wrap items-center gap-1.5">
           <Badge variant={fam.variant} size="sm">{fam.label}</Badge>
           <Badge variant="outline" size="sm">{t.messageSource === "sarvam" ? "Sarvam AI" : "Template"}</Badge>
-          <Badge variant="warning" size="sm">Pending approval</Badge>
+          {decision?.state === "approved" ? <Badge variant="success" size="sm">Approved</Badge> : decision?.state === "rejected" ? <Badge variant="neutral" size="sm">Rejected</Badge> : <Badge variant="outline" size="sm">Suggestion</Badge>}
         </div>
         <h3 className="text-sm font-bold leading-snug text-[#171A23]">{t.title}</h3>
         <p className="text-xs leading-relaxed text-[#525866]">{t.why}</p>
@@ -134,13 +169,35 @@ function Card({ t }: { t: TipCard }) {
           </div>
         )}
       </div>
-      <div className="flex flex-wrap gap-2 border-t border-[#F0F2F5] p-3">
-        <Link href={`/dashboard/action-centre/${t.recommendationId}`} className="inline-flex items-center gap-1 rounded-lg bg-[#4338CA] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#3730A3]">
-          Review &amp; approve <ArrowRight size={12} />
-        </Link>
-        <Link href={`/dashboard/action-centre/${t.recommendationId}#decision`} className="rounded-lg border border-[#D0D5DD] px-3 py-1.5 text-xs font-medium text-[#171A23] hover:bg-[#F8F9FA]">
-          Reject or request alternative
-        </Link>
+      <div className="space-y-2 border-t border-[#F0F2F5] p-3">
+        {decision?.state === "approved" ? (
+          <Link href={`/dashboard/action-centre/${decision.recommendationId}`} className="inline-flex items-center gap-1 text-xs font-semibold text-[#4338CA] hover:underline">
+            Approved. See it in Action Centre <ArrowRight size={12} />
+          </Link>
+        ) : decision?.state === "rejected" ? (
+          <p className="text-xs text-[#525866]">Rejected. It was not saved, and your reason will shape the next tips.</p>
+        ) : rejecting ? (
+          <div className="space-y-2">
+            <select value={reason} onChange={(e) => setReason(e.target.value)} aria-label="Why not?" className="block w-full rounded-lg border border-[#D0D5DD] bg-white px-2 py-1.5 text-xs text-[#171A23]">
+              {DECLINE_REASONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+            <input value={note} maxLength={300} onChange={(e) => setNote(e.target.value)} placeholder={reason === "OTHER" ? "Please explain" : "Note (optional)"} className="block w-full rounded-lg border border-[#D0D5DD] px-2 py-1.5 text-xs" />
+            <div className="flex gap-2">
+              <button type="button" disabled={busy} onClick={() => void reject()} className="rounded-lg bg-[#171A23] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">{busy ? "Saving..." : "Reject"}</button>
+              <button type="button" disabled={busy} onClick={() => setRejecting(false)} className="rounded-lg border border-[#D0D5DD] px-3 py-1.5 text-xs font-medium text-[#171A23]">Cancel</button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            <button type="button" disabled={busy} onClick={() => void approve()} className="inline-flex items-center gap-1 rounded-lg bg-[#4338CA] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#3730A3] disabled:opacity-50">
+              {busy ? "Approving..." : "Approve this tip"}
+            </button>
+            <button type="button" disabled={busy} onClick={() => setRejecting(true)} className="rounded-lg border border-[#D0D5DD] px-3 py-1.5 text-xs font-medium text-[#171A23] hover:bg-[#F8F9FA]">
+              Reject
+            </button>
+          </div>
+        )}
+        {err && <p role="alert" className="text-xs text-rose-700">{err}</p>}
       </div>
     </article>
   );
@@ -148,7 +205,7 @@ function Card({ t }: { t: TipCard }) {
 
 type Props = { sarvam: boolean; isOwner: boolean; referenceDate: string; isDemo: boolean; initialAsk?: string };
 
-/** Ask in the chat ("koi tips do") → one batch; "Show more tips" (+ optional feedback) → next batch. Every tip waits in the Action Centre for approval. */
+/** Ask in the chat ("koi tips do") → one batch; "Show more tips" (+ optional feedback) → next batch. A tip is saved only when you approve it. */
 export function TipsWorkspace({ sarvam, isOwner, referenceDate, isDemo, initialAsk }: Props) {
   const [sessionId, setSessionId] = useState<string | null>(() => (typeof window === "undefined" ? null : readSession()));
   const [batches, setBatches] = useState<TipCard[][]>([]);
@@ -159,6 +216,7 @@ export function TipsWorkspace({ sarvam, isOwner, referenceDate, isDemo, initialA
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notes, setNotes] = useState<string[]>([]);
+  const [decisions, setDecisions] = useState<Record<string, Decision>>({});
   const [fb, setFb] = useState<Feedback>({});
   const [showFeedback, setShowFeedback] = useState(false);
 
@@ -205,7 +263,7 @@ export function TipsWorkspace({ sarvam, isOwner, referenceDate, isDemo, initialA
   );
 
   const describe = (r: TipsReply | null) =>
-    !r ? "Sorry, I could not prepare tips right now." : r.batch.length === 0 ? "No new tips right now. Everything useful is already in your Action Centre." : `Here ${r.batch.length === 1 ? "is 1 tip" : `are ${r.batch.length} tips`}: ${r.batch.map((t, i) => `${i + 1}. ${t.title}`).join(". ")}. ${r.remaining} more available. Each one waits for your approval.`;
+    !r ? "Sorry, I could not prepare tips right now." : r.batch.length === 0 ? "No new tips right now. Everything useful has been shown or is already active." : `Here ${r.batch.length === 1 ? "is 1 tip" : `are ${r.batch.length} tips`}: ${r.batch.map((t, i) => `${i + 1}. ${t.title}`).join(". ")}. ${r.remaining} more available. Each one waits for your approval.`;
 
   async function onCommand(r: IntentResponse): Promise<VoiceBarResult> {
     const voiceFocus = (r.params.focus ?? []).filter((f) => FAMILY[f]);
@@ -220,7 +278,7 @@ export function TipsWorkspace({ sarvam, isOwner, referenceDate, isDemo, initialA
         if (!sessionId) return "Ask for tips first, then tell me what to change.";
         return `Noted. ${describe(await request({ feedback: { reason: r.params.reason, note: r.params.note } }))}`;
       case "APPROVE_RECOMMENDATION":
-        return "To approve, open the tip with 'Review & approve'. Approval always needs your confirmation on screen.";
+        return "To approve, tap 'Approve this tip' on the card. Approval always needs your confirmation on screen.";
       case "CONFIRM":
         return "Nothing is waiting for your confirmation here.";
       default:
@@ -252,7 +310,7 @@ export function TipsWorkspace({ sarvam, isOwner, referenceDate, isDemo, initialA
       {!loading && all.length === 0 && !error && (
         <div className="rounded-lg border border-dashed border-[#D0D5DD] bg-[#FAFAFC] px-6 py-10 text-center text-xs text-[#737B8C]">
           {exhausted ? (
-            <>No new tips right now. Everything useful is already in your <Link href="/dashboard/action-centre" className="font-semibold text-[#4338CA] hover:underline">Action Centre</Link>.</>
+            <>No new tips right now. Everything useful has been shown or is already active in your <Link href="/dashboard/action-centre" className="font-semibold text-[#4338CA] hover:underline">Action Centre</Link>.</>
           ) : (
             <>Ask in the chat above, for example <em>&quot;koi tips do&quot;</em> or <em>&quot;festival ke liye offer&quot;</em>. You will get 3 different ideas at a time.</>
           )}
@@ -267,9 +325,9 @@ export function TipsWorkspace({ sarvam, isOwner, referenceDate, isDemo, initialA
       )}
 
       {batches.map((batch, i) => (
-        <section key={batch[0]?.recommendationId ?? i} aria-label={i === 0 ? "Latest tips" : "Earlier tips"} className="space-y-2">
+        <section key={batch[0]?.key ?? i} aria-label={i === 0 ? "Latest tips" : "Earlier tips"} className="space-y-2">
           {batches.length > 1 && <h2 className="text-xs font-semibold uppercase tracking-wide text-[#737B8C]">{i === 0 ? "Latest tips" : "Earlier in this session"}</h2>}
-          <div className="grid gap-4 md:grid-cols-3">{batch.map((t) => <Card key={t.recommendationId} t={t} />)}</div>
+          <div className="grid gap-4 md:grid-cols-3">{batch.map((t) => <Card key={t.key} t={t} sessionId={sessionId ?? ""} decision={decisions[t.key]} onDecide={(k, d) => setDecisions((m) => ({ ...m, [k]: d }))} />)}</div>
         </section>
       ))}
 
@@ -292,9 +350,9 @@ export function TipsWorkspace({ sarvam, isOwner, referenceDate, isDemo, initialA
             <div className="grid gap-2 md:grid-cols-3">
               <label className="space-y-1 text-xs text-[#525866]">
                 <span>About which tip? (optional)</span>
-                <select value={fb.recommendationId ?? ""} onChange={(e) => setFb({ ...fb, recommendationId: e.target.value || undefined })} className="block w-full rounded-lg border border-[#D0D5DD] bg-white px-2 py-1.5 text-xs text-[#171A23]">
+                <select value={fb.tipKey ?? ""} onChange={(e) => setFb({ ...fb, tipKey: e.target.value || undefined })} className="block w-full rounded-lg border border-[#D0D5DD] bg-white px-2 py-1.5 text-xs text-[#171A23]">
                   <option value="">All of them</option>
-                  {latest.map((t) => <option key={t.recommendationId} value={t.recommendationId}>{t.title}</option>)}
+                  {latest.map((t) => <option key={t.key} value={t.key}>{t.title}</option>)}
                 </select>
               </label>
               <label className="space-y-1 text-xs text-[#525866]">

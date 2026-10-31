@@ -82,7 +82,7 @@ export default async function SalesAnalyticsPage({ searchParams }: PageProps<"/d
       </div>
 
       {/* Filter Bar */}
-      <FilterBar query={{ ...query, range: range.key }} categories={data.categories} />
+      <FilterBar key={`${range.fromDate}|${range.toDate}`} query={{ ...query, range: range.key }} categories={data.categories} referenceDate={referenceDate} fromDate={range.fromDate} toDate={range.toDate} />
 
       {/* KPI Cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

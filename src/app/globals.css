@@ -55,3 +55,9 @@ body {
   outline: 2px solid #4f46e5;
   outline-offset: 2px;
 }
+
+/* Native date inputs (ledger forms): brand colour for the picker and a visible disabled state. */
+input[type="date"] {
+  color-scheme: light;
+  accent-color: #4338ca;
+}

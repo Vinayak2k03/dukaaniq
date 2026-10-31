@@ -45,6 +45,12 @@ export default async function SettingsPage() {
       })
     : null;
 
+  // Real connectivity probe; the badge below reflects this, not a fixed label.
+  const dbOnline = await db.$queryRaw`SELECT 1`.then(
+    () => true,
+    () => false,
+  );
+
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       {/* Header */}
@@ -139,8 +145,8 @@ export default async function SettingsPage() {
           />
           <SettingRow
             label="Ledger Integrity"
-            value={<span className="text-emerald-700 font-semibold">&check; Append-Only Postgres Enforced</span>}
-            description="Update/delete triggers protect ledger records from unauthorized tampering"
+            value="Append-only"
+            description="Database triggers reject updates and deletes on ledger entries; corrections are new adjustment entries"
           />
         </dl>
       </Panel>
@@ -149,17 +155,17 @@ export default async function SettingsPage() {
       <Panel
         title="Connected Infrastructure &amp; AI Integrations"
         subtitle="Platform runtime and database connectivity"
-        badge={<Badge variant="success" size="sm">Online</Badge>}
+        badge={dbOnline ? <Badge variant="success" size="sm">Database reachable</Badge> : <Badge variant="danger" size="sm">Database unreachable</Badge>}
       >
         <dl className="divide-y divide-[#F0F2F5]">
           <SettingRow
             label="Database Cluster"
-            value="Neon Serverless PostgreSQL (ap-southeast-1)"
-            badge={<span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />}
+            value="PostgreSQL"
+            badge={<span className={`h-2 w-2 rounded-full ${dbOnline ? "bg-emerald-500" : "bg-rose-500"}`} />}
           />
           <SettingRow
             label="Authentication Engine"
-            value="Better Auth 1.7.12 (Session Token Security)"
+            value="Better Auth (session cookies)"
           />
           <SettingRow
             label="AI Copilot Model"

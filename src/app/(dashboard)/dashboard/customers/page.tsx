@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { db } from "@/lib/db";
 import { formatLocalDate, formatPaise } from "@/lib/money";
-import { referenceDateFor } from "@/server/analytics/range";
+import { daysBetween, istYmd, referenceDateFor } from "@/server/analytics/range";
 import { SEGMENT_RULES } from "@/server/analytics/queries";
 import { requireSession } from "@/server/auth/session";
 import { getCurrentMembership } from "@/server/merchant/access";
@@ -65,14 +65,13 @@ export default async function CustomersPage({
     );
     const purchaseCount = c.sales.length;
     const lastSale = c.sales[0];
-    const lastPurchaseDate = lastSale ? lastSale.saleDate.toISOString().slice(0, 10) : null;
+    const lastPurchaseDate = lastSale ? istYmd(lastSale.saleDate) : null;
 
     let daysSince: number | null = null;
     let seg = "NO_PURCHASE";
 
     if (lastPurchaseDate) {
-      const msDiff = Date.parse(refDate) - Date.parse(lastPurchaseDate);
-      daysSince = Math.max(0, Math.floor(msDiff / 86_400_000));
+      daysSince = Math.max(0, daysBetween(lastPurchaseDate, refDate));
       if (daysSince <= SEGMENT_RULES.activeMaxDays) seg = "ACTIVE";
       else if (daysSince <= SEGMENT_RULES.coolingMaxDays) seg = "COOLING_OFF";
       else seg = "INACTIVE";
@@ -171,9 +170,9 @@ export default async function CustomersPage({
           icon={<Clock size={16} />}
         />
         <KpiCard
-          label="At-Risk &amp; Inactive"
+          label="At-Risk & Inactive"
           value={`${coolingCount + inactiveCount}`}
-          hint={`${coolingCount} cooling off &middot; ${inactiveCount} inactive`}
+          hint={`${coolingCount} cooling off · ${inactiveCount} inactive`}
           icon={<Filter size={16} />}
         />
         <KpiCard

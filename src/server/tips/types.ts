@@ -58,6 +58,16 @@ export type CreditFact = {
 
 export type DailyPoint = { date: string; netSalesPaise: number; orders: number };
 
+/** What the merchant approved and rejected before, and how sales moved after approved tips (see history.ts). Optional: older stored sessions have none. */
+export type TipHistory = {
+  asOf: string;
+  families: Partial<Record<TipFamily, { approved: number; rejected: number; avgSalesChangePct: number | null }>>;
+  /** Tip keys approved in the last 14 days; they are not proposed again. */
+  recentKeys: string[];
+  /** Tip keys the merchant rejected in the last 30 days; they are not proposed again. */
+  rejectedKeys?: string[];
+};
+
 export type TipContext = {
   merchant: { id: string; shopName: string; isDemo: boolean };
   ref: string;
@@ -73,6 +83,7 @@ export type TipContext = {
   daily: DailyPoint[];
   credit: CreditFact[];
   festivals: Festival[];
+  history?: TipHistory;
 };
 
 export type TimeWindow = { dow: number; startHour: number; endHour: number };

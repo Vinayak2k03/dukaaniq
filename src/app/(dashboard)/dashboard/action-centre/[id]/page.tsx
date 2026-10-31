@@ -272,7 +272,7 @@ export default async function RecommendationDetailPage({
       {/* Message Copy Preview */}
       <Panel
         title="WhatsApp Message Copy Preview"
-        subtitle={`Channel: WhatsApp &middot; Language: ${LANGUAGE_LABEL[version.language as keyof typeof LANGUAGE_LABEL] ?? version.language} &middot; Author: ${source} &middot; Sample for ${sample}`}
+        subtitle={`Channel: WhatsApp · Language: ${LANGUAGE_LABEL[version.language as keyof typeof LANGUAGE_LABEL] ?? version.language} · Author: ${source} · Sample for ${sample}`}
         badge={<Badge variant="brand" size="sm"><MessageSquare size={12} className="inline mr-1" />Preview</Badge>}
       >
         <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-4 shadow-2xs">

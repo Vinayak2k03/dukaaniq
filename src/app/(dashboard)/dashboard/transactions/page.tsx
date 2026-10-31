@@ -79,7 +79,7 @@ export default async function TransactionsPage({
       },
     }),
     db.sale.aggregate({
-      where: { merchantId: merchant.id },
+      where,
       _count: { id: true },
       _sum: { netAmount: true, discountAmount: true, grossAmount: true },
     }),
@@ -105,7 +105,7 @@ export default async function TransactionsPage({
 
         <div className="flex items-center gap-2 text-xs">
           <Badge variant="brand" size="sm">
-            {totalCount.toLocaleString("en-IN")} Total Records
+            {totalCount.toLocaleString("en-IN")} Matching Records
           </Badge>
         </div>
       </div>
@@ -113,27 +113,27 @@ export default async function TransactionsPage({
       {/* KPI Cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
-          label="Total Net Revenue"
+          label="Net Amount"
           value={formatPaise(totalNetPaise)}
-          hint="All completed shop sales"
+          hint="Matching the filters below, any payment status"
           icon={<Wallet size={16} />}
         />
         <KpiCard
-          label="Total Gross Value"
+          label="Gross Amount"
           value={formatPaise(totalGrossPaise)}
           hint="Pre-discount transaction volume"
           icon={<Receipt size={16} />}
         />
         <KpiCard
-          label="Discounts &amp; Vouchers Given"
+          label="Discounts &amp; Vouchers"
           value={formatPaise(totalDiscountPaise)}
           hint="Total promotional savings"
           icon={<Tag size={16} />}
         />
         <KpiCard
-          label="Total Transactions"
+          label="Matching Transactions"
           value={`${totalCount} checkouts`}
-          hint="Invoices &amp; receipts in system"
+          hint="Invoices matching the filters"
           icon={<Receipt size={16} />}
         />
       </div>

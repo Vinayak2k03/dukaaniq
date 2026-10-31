@@ -6,6 +6,7 @@ import { getCustomerRecency, getProductStats, getSalesTrend, getSummary } from "
 import { addDays, resolveRange, type ResolvedRange } from "@/server/analytics/range";
 import { listAccounts } from "@/server/credit/service";
 import { FESTIVALS } from "./festivals";
+import { buildHistory } from "./history";
 import type { TipContext } from "./types";
 
 type Merchant = { id: string; isDemo: boolean; shopName: string };
@@ -25,7 +26,8 @@ export async function buildContext(merchant: Merchant, ref: string, nonce: strin
   const policy = await db.creditPolicy.findUnique({ where: { merchantId: merchant.id }, select: { gracePeriodDays: true } });
   const graceDays = policy?.gracePeriodDays ?? 0;
 
-  const [summary, value90, value180, recency, people, catalog, stats90, stats30, statsPrior, pairs, heatmap, daily, accounts] = await Promise.all([
+  const [history, summary, value90, value180, recency, people, catalog, stats90, stats30, statsPrior, pairs, heatmap, daily, accounts] = await Promise.all([
+    buildHistory(merchant.id, ref),
     getSummary(merchant.id, r90),
     getCustomerValue(merchant.id, r90),
     getCustomerValue(merchant.id, r180),
@@ -103,5 +105,6 @@ export async function buildContext(merchant: Merchant, ref: string, nonce: strin
         daysOverdue: a.account.daysOverdue,
       })),
     festivals: FESTIVALS,
+    history,
   };
 }
