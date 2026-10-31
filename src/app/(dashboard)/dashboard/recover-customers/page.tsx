@@ -32,7 +32,7 @@ export default async function RecoverCustomersPage() {
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#E2E4E9] pb-4">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold tracking-tight text-[#171A23]">Customer Win-Back Intelligence</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-[#171A23]">Customers not coming</h1>
             <Badge variant="danger" size="sm">
               {list.length} Inactive Shoppers
             </Badge>

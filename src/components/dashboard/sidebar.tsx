@@ -8,17 +8,12 @@ import {
   TrendingUp,
   Users,
   Sparkles,
-  Receipt,
-  Tag,
   BookMarked,
-  UserCheck,
   UploadCloud,
   Settings,
   Store,
-  ChevronDown,
   X,
   Menu,
-  Lightbulb,
 } from "@/components/ui/icons";
 import { Badge } from "@/components/ui/badge";
 
@@ -27,6 +22,8 @@ type NavItem = {
   label: string;
   icon: React.ComponentType<{ size?: number; className?: string }>;
   badge?: string;
+  /** Other pages that belong under this entry (they show as tabs on the page). */
+  also?: string[];
 };
 
 type NavGroup = {
@@ -34,39 +31,28 @@ type NavGroup = {
   items: NavItem[];
 };
 
+/** Five everyday places, plus rarely used setup pages under "More". Every page stays reachable. */
 const navigationGroups: NavGroup[] = [
   {
-    title: "OVERVIEW",
+    title: "",
     items: [
-      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-    ],
-  },
-  {
-    title: "BUSINESS INTELLIGENCE",
-    items: [
-      { href: "/dashboard/sales", label: "Sales Analytics", icon: TrendingUp },
+      { href: "/dashboard", label: "Home", icon: LayoutDashboard },
+      { href: "/dashboard/udhaar", label: "Udhaar", icon: BookMarked },
+      { href: "/dashboard/action-centre", label: "Suggestions", icon: Sparkles, also: ["/dashboard/grow-profit", "/dashboard/recover-customers"] },
+      { href: "/dashboard/sales", label: "Sales", icon: TrendingUp, also: ["/dashboard/transactions", "/dashboard/campaigns"] },
       { href: "/dashboard/customers", label: "Customers", icon: Users },
-      { href: "/dashboard/action-centre", label: "AI Recommendations", icon: Sparkles },
-      { href: "/dashboard/grow-profit", label: "Growth Tips", icon: Lightbulb },
     ],
   },
   {
-    title: "OPERATIONS",
+    title: "More",
     items: [
-      { href: "/dashboard/transactions", label: "Transactions", icon: Receipt },
-      { href: "/dashboard/campaigns", label: "Coupons & Campaigns", icon: Tag },
-      { href: "/dashboard/udhaar", label: "Udhaar Ledger", icon: BookMarked },
-      { href: "/dashboard/recover-customers", label: "Recover Inactive", icon: UserCheck },
-    ],
-  },
-  {
-    title: "DATA & SYSTEM",
-    items: [
-      { href: "/dashboard/import", label: "Workbook Importer", icon: UploadCloud },
+      { href: "/dashboard/import", label: "Import from Excel", icon: UploadCloud },
       { href: "/dashboard/settings", label: "Settings", icon: Settings },
     ],
   },
 ];
+
+const under = (pathname: string, href: string) => pathname === href || (href !== "/dashboard" && pathname.startsWith(`${href}/`));
 
 export function Sidebar({
   merchantName,
@@ -96,7 +82,7 @@ export function Sidebar({
                 Dukaan<span className="text-[#4338CA]">IQ</span>
               </span>
               <span className="ml-1.5 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 tracking-normal border border-indigo-200/50">
-                AI Copilot
+                Shop helper
               </span>
             </div>
           </Link>
@@ -116,15 +102,15 @@ export function Sidebar({
         <nav aria-label="Main navigation" className="space-y-6">
           {navigationGroups.map((group) => (
             <div key={group.title}>
-              <p className="px-2.5 pb-2 text-[10px] font-bold tracking-wider text-[#737B8C] uppercase">
-                {group.title}
-              </p>
+              {group.title ? (
+                <p className="px-2.5 pb-2 text-[10px] font-bold tracking-wider text-[#737B8C] uppercase">
+                  {group.title}
+                </p>
+              ) : null}
               <ul className="space-y-1">
                 {group.items.map((item) => {
                   const Icon = item.icon;
-                  const isActive =
-                    pathname === item.href ||
-                    (item.href !== "/dashboard" && pathname.startsWith(`${item.href}/`));
+                  const isActive = [item.href, ...(item.also ?? [])].some((h) => under(pathname, h));
 
                   return (
                     <li key={item.href}>
@@ -132,7 +118,7 @@ export function Sidebar({
                         href={item.href}
                         onClick={() => setMobileOpen(false)}
                         aria-current={isActive ? "page" : undefined}
-                        className={`group flex items-center justify-between rounded-lg px-2.5 py-2 text-xs font-medium transition-all duration-150 ${
+                        className={`group flex items-center justify-between rounded-lg px-2.5 py-2.5 text-sm font-medium transition-all duration-150 ${
                           isActive
                             ? "bg-[#4338CA]/10 text-[#4338CA] font-semibold"
                             : "text-[#525866] hover:bg-[#F4F5F7] hover:text-[#171A23]"

@@ -11,7 +11,7 @@ import { Panel, EmptyState } from "@/components/dashboard/panel";
 import { KpiCard } from "@/components/dashboard/kpi-card";
 import { Users, Search, Filter, ArrowRight, Phone, Clock, Wallet } from "@/components/ui/icons";
 
-export const metadata: Metadata = { title: "Customers CRM" };
+export const metadata: Metadata = { title: "Customers" };
 
 export default async function CustomersPage({
   searchParams,
@@ -139,7 +139,7 @@ export default async function CustomersPage({
       {/* Page Header */}
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#E2E4E9] pb-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-[#171A23]">Customer Intelligence &amp; CRM</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-[#171A23]">Customers</h1>
           <p className="mt-1 text-xs text-[#737B8C]">
             Profile segmentation, purchase frequency, lifetime value and credit standing.
           </p>
@@ -177,7 +177,7 @@ export default async function CustomersPage({
           icon={<Filter size={16} />}
         />
         <KpiCard
-          label="Total Customer Spend (LTV)"
+          label="Total spent by customers"
           value={formatPaise(totalLTVPaise)}
           hint={`Across ${totalCount} recorded profiles`}
           icon={<Wallet size={16} />}

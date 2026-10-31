@@ -26,7 +26,7 @@ export default async function AuthLayout({ children }: LayoutProps<"/">) {
       </div>
 
       <div className="mt-8 text-center text-xs text-[#737B8C]">
-        <p>Protected by Better Auth Session Tokens &middot; Neon Serverless Database</p>
+        <p>Your shop&apos;s data stays private to your account</p>
       </div>
     </main>
   );

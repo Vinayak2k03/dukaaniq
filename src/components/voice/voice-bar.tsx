@@ -44,6 +44,8 @@ type Props = {
   placeholder?: string;
   /** Sent once on mount, e.g. a question carried over from another page (?ask=...). */
   initialText?: string;
+  /** Tappable example sentences, shown until the first command. */
+  examples?: string[];
   /** Handles an interpreted command and returns the reply to show (and speak, when the command was spoken). */
   onCommand: (r: IntentResponse, text: string) => Promise<VoiceBarResult>;
 };
@@ -73,7 +75,7 @@ const LANGS: [VoiceLanguage, string][] = [["HINGLISH", "Hinglish"], ["HINDI", "à
  * Voice or typed command bar. The transcript is always shown and editable before it is sent; the reply is shown
  * as text and read back only for spoken commands. Voice never approves or saves anything by itself.
  */
-export function VoiceBar({ sarvam, placeholder, initialText, onCommand }: Props) {
+export function VoiceBar({ sarvam, placeholder, initialText, examples, onCommand }: Props) {
   const voice = useVoice(sarvam);
   const [language, setLanguage] = useState<VoiceLanguage>("HINGLISH");
   const [text, setText] = useState("");
@@ -316,6 +318,15 @@ export function VoiceBar({ sarvam, placeholder, initialText, onCommand }: Props)
           Auto-send
         </label>
       </form>
+      {examples?.length && turns.length === 0 && !busy && !voice.listening ? (
+        <div className="mt-2 flex flex-wrap gap-1.5" aria-label="Examples">
+          {examples.map((ex) => (
+            <button key={ex} type="button" onClick={() => void ask(ex, false)} className="rounded-full border border-indigo-200 bg-indigo-50/60 px-3 py-1 text-[11px] font-medium text-[#3730A3] hover:bg-indigo-100">
+              {ex}
+            </button>
+          ))}
+        </div>
+      ) : null}
       {voice.listening || voice.transcribing ? (
         <div role="status" aria-live="polite" className="mt-3 overflow-hidden rounded-xl bg-[#0B1020] px-4 pb-3 pt-2 shadow-inner">
           <VoiceWave levelRef={voice.levelRef} mode={voice.listening ? "listening" : "thinking"} />

@@ -123,7 +123,7 @@ export default async function CampaignsPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-[#171A23]">Coupons &amp; Campaign Management</h1>
           <p className="mt-1 text-xs text-[#737B8C]">
-            Promotional codes, customer redemptions, discount budget efficiency and ROI analytics.
+            Which coupons and discounts customers used, and the sales they brought in.
           </p>
         </div>
 
@@ -155,7 +155,7 @@ export default async function CampaignsPage() {
           icon={<Percent size={16} />}
         />
         <KpiCard
-          label="Average Campaign ROI"
+          label="Sales per ₹1 of discount"
           value={`${totalDiscountPaise > 0 ? (totalDrivenRevenuePaise / totalDiscountPaise).toFixed(1) : 0}x`}
           hint="Revenue driven per ₹1 discount"
           icon={<Sparkles size={16} />}

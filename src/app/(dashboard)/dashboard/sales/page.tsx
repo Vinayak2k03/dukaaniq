@@ -12,7 +12,7 @@ import { getDashboardData, prepareRange } from "@/server/analytics/dashboard";
 import { requireSession } from "@/server/auth/session";
 import { getCurrentMembership } from "@/server/merchant/access";
 
-export const metadata: Metadata = { title: "Sales Analytics" };
+export const metadata: Metadata = { title: "Sales" };
 
 export default async function SalesAnalyticsPage({ searchParams }: PageProps<"/dashboard">) {
   const session = await requireSession();
@@ -65,9 +65,9 @@ export default async function SalesAnalyticsPage({ searchParams }: PageProps<"/d
       {/* Page Header */}
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#E2E4E9] pb-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-[#171A23]">Sales Analytics Workspace</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-[#171A23]">Sales</h1>
           <p className="mt-1 text-xs text-[#737B8C]">
-            Deterministic financial analytics, volume trends and product margin breakdowns.
+            How much you sold, which products earn the most, and how it is changing.
           </p>
         </div>
 
@@ -105,7 +105,7 @@ export default async function SalesAnalyticsPage({ searchParams }: PageProps<"/d
           icon={<Receipt size={16} />}
         />
         <KpiCard
-          label="Average Order Value (AOV)"
+          label="Average bill"
           value={summary.orders ? formatPaise(summary.averageOrderValuePaise) : "₹0"}
           hint={`${summary.customersServed} distinct customers`}
           icon={<Wallet size={16} />}
