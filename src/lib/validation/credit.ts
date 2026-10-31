@@ -7,7 +7,7 @@ export const PAYMENT_METHODS = ["CASH", "PAYTM", "UPI", "CARD", "OTHER"] as cons
 const emptyToUndefined = (v: unknown) => (typeof v === "string" && v.trim() === "" ? undefined : v);
 
 /** Accepts "500", "500.5", "500.50" (or a JSON number) and returns integer paise. */
-const rupees = z.preprocess(
+export const rupees = z.preprocess(
   (v) => (typeof v === "number" ? String(v) : v),
   z
     .string()

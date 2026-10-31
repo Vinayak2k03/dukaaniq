@@ -26,6 +26,8 @@ import { SEGMENT_RULES } from "@/server/analytics/queries";
 import { requireSession } from "@/server/auth/session";
 import { getCurrentMembership } from "@/server/merchant/access";
 import { listRecommendations } from "@/server/recommendations/service";
+import { ShopAssistant } from "@/components/voice/shop-assistant";
+import { env } from "@/lib/env";
 
 export const metadata: Metadata = { title: "Command Centre" };
 
@@ -151,6 +153,11 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
             <ArrowRight size={13} />
           </Link>
         </div>
+      </section>
+
+      {/* Voice / typed assistant: questions, udhaar, and adding products, customers and sales without the workbook */}
+      <section aria-label="Shop assistant">
+        <ShopAssistant sarvam={Boolean(env.SARVAM_API_KEY)} referenceDate={referenceDate} placeholder='Try "2 Maggi aur 1 Parle-G becha, cash" or "naya product add karo"' />
       </section>
 
       {/* Demo store indicator */}
