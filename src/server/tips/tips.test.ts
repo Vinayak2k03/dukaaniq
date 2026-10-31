@@ -38,7 +38,7 @@ test("the same product combo is never repeated under another family", () => {
 
 test("a focus returns only those families and may repeat a family", () => {
   const { batch } = selectBatch(ranked, { count: 3, focus: ["LOYALTY"], shown: [], open: [] });
-  assert.deepEqual(batch.map((c) => c.key), ["LOYALTY:coupon", "LOYALTY:combo", "LOYALTY:credit"]);
+  assert.deepEqual(batch.map((c) => c.key), ["LOYALTY:coupon", "LOYALTY:combo"]);
 });
 
 test("every discount and combo respects the margin floor", () => {
@@ -64,13 +64,6 @@ test("loyalty audience is the top 20% by spend among recent buyers", () => {
   assert.equal(coupon.audienceRule, "spend");
   assert.ok(coupon.audience.every((a) => ["ACTIVE", "COOLING_OFF"].includes(ctx.customers.find((c) => c.id === a.customerId)!.segment)));
   assert.equal(coupon.audience[0].customerId, "c00");
-});
-
-test("udhaar facility only goes to loyal customers with a clean repayment record, and never writes credit", () => {
-  const credit = byKey("LOYALTY:credit")!;
-  assert.deepEqual(credit.audience.map((a) => a.customerId), ["c00"]);
-  assert.equal(credit.offer.kind, "CREDIT_LIMIT");
-  assert.equal((credit.economics as { label: string }).label, "Risk exposure, not revenue");
 });
 
 test("off-peak slot is quiet but open, with its time window on the coupon", () => {
@@ -144,8 +137,6 @@ test("rejectReason for offers: code, discount, validity and time window must sur
   const combo = factsFor(byKey("LOYALTY:combo")!, "Sharma Kirana Store")!;
   assert.ok(combo.kind === "LOYALTY_COMBO");
   assert.equal(rejectReason(templateMessage(combo).replace(combo.comboPriceText, "₹1"), combo), "amount_missing");
-  const credit = factsFor(byKey("LOYALTY:credit")!, "Sharma Kirana Store")!;
-  assert.equal(rejectReason("Hello {name}, you can now take udhaar up to ₹9,999 at our shop.", credit), "amount_missing");
 });
 
 test("economics: scenario range, capped discount and margin helpers", () => {

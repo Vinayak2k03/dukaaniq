@@ -109,7 +109,7 @@ const amountOf = (t: string) => {
 };
 
 /** Words that stand for "a customer" without naming one ("ek customer ko reminder", "kisi ko"). */
-const GENERIC_NAME = new Set(["ek", "koi", "kisi", "kuch", "customer", "customers", "grahak", "ग्राहक", "एक", "कोई", "किसी", "sab", "sabhi", "all", "a", "any", "my", "mera", "meri", "credit", "overdue", "udhaar", "udhar", "उधार", "payment", "the", "someone", "him", "her", "unko", "usko", "inko"]);
+const GENERIC_NAME = new Set(["ek", "koi", "kisi", "kuch", "customer", "customers", "grahak", "ग्राहक", "एक", "कोई", "किसी", "sab", "sabhi", "all", "a", "any", "my", "mera", "meri", "credit", "overdue", "udhaar", "udhar", "उधार", "payment", "the", "someone", "him", "her", "i", "he", "she", "they", "who", "unko", "usko", "inko"]);
 
 /** "Rahul ka ...", "Ramesh ji ko ...", "राहुल का ...", "in Rahul's account", "... for Rahul". Returns up to two words, without "ji". */
 const rawNameOf = (raw: string) => {
@@ -118,6 +118,8 @@ const rawNameOf = (raw: string) => {
   if (inAccount) return inAccount[1].trim();
   const before = t.match(/^(?:mera |meri )?([\p{L}\p{M}]+(?: [\p{L}\p{M}]+)?)\s+(?:ji\s+|जी\s+)?(?:ka|ki|ko|ne|ke|का|की|को|ने|के)\s/u);
   if (before) return before[1].replace(/\s+(ji|जी)$/u, "").trim();
+  const subject = t.match(/^([\p{L}\p{M}]+(?: [\p{L}\p{M}]+)?)\s+(?:(?:has|have|had)\s+)?(?:paid|repaid|returned|gave|given|cleared|settled|deposited)\b/iu);
+  if (subject) return subject[1].replace(/\s+(has|have|had)$/i, "").trim();
   const after = t.match(/\b(?:for|to|from|in)\s+([\p{L}\p{M}]+(?: [\p{L}\p{M}]+)?)\s*$/iu) ?? t.match(/\b(?:for|to|from|in)\s+([\p{L}\p{M}]+)/iu);
   return after ? after[1].trim() : undefined;
 };

@@ -66,31 +66,42 @@ function FormShell({
   );
 }
 
-const amountField = (errors?: string[]) => (
-  <Field label="Amount (₹)" name="amount" inputMode="decimal" autoComplete="off" required errors={errors} />
+const amountField = (errors?: string[], prefill?: { amount?: string; focus?: boolean }) => (
+  <Field
+    label="Amount (₹)"
+    name="amount"
+    inputMode="decimal"
+    autoComplete="off"
+    required
+    errors={errors}
+    defaultValue={prefill?.amount}
+    autoFocus={prefill?.focus}
+  />
 );
 
 export function AddCreditForm({
   customerId,
   idempotencyKey,
   today,
+  prefill,
 }: {
   customerId: string;
   idempotencyKey: string;
   today: string;
+  prefill?: { amount?: string; focus?: boolean };
 }) {
   return (
     <FormShell
-      title="Add Credit (Udhaar Given)"
-      subtitle="Extends new credit to customer"
+      title="Add Udhaar"
+      subtitle="Customer couldn't pay right now"
       action={addCreditAction}
       idempotencyKey={idempotencyKey}
       customerId={customerId}
-      submitLabel="Record Credit Extended"
+      submitLabel="Record Udhaar"
     >
       {(s) => (
         <>
-          {amountField(s.fieldErrors?.amount)}
+          {amountField(s.fieldErrors?.amount, prefill)}
           <Field label="Entry Date (optional)" name="entryDate" type="date" max={today} errors={s.fieldErrors?.entryDate} />
           <Field label="Due Date (optional)" name="dueDate" type="date" errors={s.fieldErrors?.dueDate} />
           <Field label="Memo Note (optional)" name="note" maxLength={200} errors={s.fieldErrors?.note} placeholder="Items taken or bill note" />
@@ -105,11 +116,13 @@ export function RepaymentForm({
   idempotencyKey,
   today,
   disabled,
+  prefill,
 }: {
   customerId: string;
   idempotencyKey: string;
   today: string;
   disabled: boolean;
+  prefill?: { amount?: string; focus?: boolean };
 }) {
   return (
     <FormShell
@@ -122,8 +135,8 @@ export function RepaymentForm({
     >
       {(s) => (
         <>
-          {disabled ? <p className="text-xs text-amber-700 bg-amber-50 p-2 rounded">No outstanding credit balance currently due.</p> : null}
-          {amountField(s.fieldErrors?.amount)}
+          {disabled ? <p className="text-xs text-amber-700 bg-amber-50 p-2 rounded">No outstanding udhaar balance currently due.</p> : null}
+          {amountField(s.fieldErrors?.amount, prefill)}
           <div className="space-y-1.5">
             <label htmlFor="paymentMethod" className="block text-xs font-semibold uppercase tracking-wider text-[#525866]">
               Settlement Method

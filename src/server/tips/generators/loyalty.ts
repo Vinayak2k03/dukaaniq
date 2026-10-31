@@ -1,4 +1,4 @@
-import { comboPrice, creditExposure, roundUpTo, scenarioEconomics } from "../economics";
+import { comboPrice, scenarioEconomics } from "../economics";
 import type { ComboItem, CustomerFact, TipContext, TipFeedback } from "../types";
 import { RULE_TEXT, audienceFlags, audienceOf, buildCoupon, dateText, loyalCustomers, rupeesText, validity, type Built } from "./shared";
 
@@ -80,8 +80,6 @@ export function loyaltyCandidates(ctx: TipContext, fb: TipFeedback): Built[] {
     });
   }
 
-  const credit = loyaltyCredit(ctx, fb, members);
-  if (credit) out.push(credit);
   return out;
 }
 
@@ -103,52 +101,4 @@ function loyaltyCombo(ctx: TipContext, fb: TipFeedback, members: CustomerFact[])
   if (!price) return null;
   const basis = pair ? `Bought together in ${pair.support} sales (${ctx.pairs.fromDate} to ${ctx.pairs.toDate})` : `Best sellers in ${cats.join(" and ")} (last 90 days)`;
   return { items, price, basis };
-}
-
-/**
- * Udhaar for trusted customers: loyal customers with a credit history, nothing overdue, and at least half of all
- * credit ever given already repaid (a settled track record).
- * One limit for everyone (1.5 × the group's median order value, ₹500 to ₹5,000, rounded to ₹100); customers who
- * already owe more than that are left out. Approval only records the offer; no CreditEntry is ever written here.
- */
-function loyaltyCredit(ctx: TipContext, fb: TipFeedback, members: CustomerFact[]): Built | null {
-  const credit = new Map(ctx.credit.map((c) => [c.customerId, c]));
-  const clean = members.filter((m) => {
-    const c = credit.get(m.id);
-    return c && c.creditGivenPaise > 0 && c.repaidPaise * 2 >= c.creditGivenPaise && c.overduePaise === 0 && c.pastGracePaise === 0;
-  });
-  if (clean.length === 0) return null;
-  const aovs = clean.map((c) => c.aov90Paise).sort((a, b) => a - b);
-  const median = aovs[Math.floor(aovs.length / 2)];
-  let limit = Math.min(500_000, Math.max(50_000, roundUpTo(Math.round(median * 1.5), 10_000)));
-  if (fb.maxDiscountPct !== null || fb.audienceShrink > 0) limit = Math.max(50_000, roundUpTo(Math.round(limit * 0.6), 10_000));
-  const eligible = clean.filter((c) => (credit.get(c.id)?.balancePaise ?? 0) <= limit);
-  const audience = audienceOf(eligible, fb);
-  if (audience.length === 0) return null;
-  const limits = audience.map((a) => ({ customerId: a.customerId, name: a.name, currentBalancePaise: credit.get(a.customerId)?.balancePaise ?? 0, limitPaise: limit }));
-  const exposure = creditExposure(limits);
-  const repaid = audience.reduce((t, a) => t + (credit.get(a.customerId)?.repaidPaise ?? 0), 0);
-  return {
-    key: "LOYALTY:credit",
-    family: "LOYALTY",
-    type: "LOYALTY",
-    quality: 2 + Math.min(2, audience.length / 5),
-    title: `Offer udhaar up to ${rupeesText(limit)} to ${audience.length} trusted customer${audience.length === 1 ? "" : "s"}`,
-    why: `${audience.length} of your best customers have taken credit before and have nothing overdue. Offering a limit of ${rupeesText(limit)} each rewards their trust. Maximum risk exposure is ${rupeesText(exposure.maxExposurePaise)}; this is risk, not revenue.`,
-    whyFacts: [
-      `${audience.length} loyal customers with a clean repayment record.`,
-      `They have repaid ${rupeesText(repaid)} of credit so far and nothing is overdue.`,
-      `Proposed limit ${rupeesText(limit)} each; maximum exposure ${rupeesText(exposure.maxExposurePaise)}.`,
-    ],
-    messageKind: "LOYALTY_CREDIT",
-    festivalName: null,
-    offer: { kind: "CREDIT_LIMIT", limits, maxExposurePaise: exposure.maxExposurePaise },
-    audience,
-    audienceRule: fb.audienceRule ?? "spend",
-    categories: [],
-    productIds: [],
-    evidence: { rule: "Loyal customers with past credit, at least half of it repaid and nothing overdue", asOf: ctx.ref, repaidSoFarPaise: repaid, ...audienceFlags(audience) },
-    economics: exposure,
-    changes: [],
-  };
 }

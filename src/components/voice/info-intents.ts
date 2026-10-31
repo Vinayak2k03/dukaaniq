@@ -1,5 +1,6 @@
 "use client";
 
+import { ledgerHref } from "@/lib/links";
 import type { IntentResponse, VoiceBarResult } from "./voice-bar";
 
 const AUDIENCE_TEXT = { LOYAL: "loyal customers", INACTIVE: "customers who stopped coming", COOLING: "customers who have not visited in 2 to 4 weeks", ACTIVE: "active customers", ALL: "all customers" } as const;
@@ -92,7 +93,7 @@ export async function answerInfoIntent(r: IntentResponse, referenceDate: string)
       }
       const amount = r.params.amountPaise ? ` of ${rupees(r.params.amountPaise)}` : "";
       const what = r.intent === "RECORD_REPAYMENT" ? `a repayment${amount}` : "a payment reminder";
-      return `To record ${what} for ${c.name}, open their Udhaar page (/dashboard/udhaar/${c.id}) and check the customer and amount before saving. Nothing has been saved by voice.`;
+      return `To record ${what} for ${c.name}, open their Udhaar page (${ledgerHref(c.id, { intent: r.intent === "RECORD_REPAYMENT" ? "repay" : undefined, amountPaise: r.params.amountPaise })}) and check the customer and amount before saving. Nothing has been saved by voice.`;
     }
     default:
       return null;

@@ -17,12 +17,18 @@ export const metadata: Metadata = { title: "Customer Ledger" };
 
 export default async function CustomerLedgerPage({
   params,
+  searchParams,
 }: PageProps<"/dashboard/udhaar/[customerId]">) {
   const session = await requireSession();
   const membership = await getCurrentMembership(session.user.id);
   if (!membership) return <EmptyState message="Set up your shop first to use the credit ledger." />;
 
   const { customerId } = await params;
+  const query = await searchParams;
+  const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
+  const intent = one(query.intent);
+  const rawAmount = one(query.amount);
+  const amount = rawAmount && /^\d{1,9}(\.\d{1,2})?$/.test(rawAmount) ? rawAmount : undefined;
   const referenceDate = referenceDateFor(membership.merchant);
   const ledger = await getCustomerLedger(membership.merchant, customerId, referenceDate);
   if (!ledger) notFound();
@@ -119,12 +125,18 @@ export default async function CustomerLedgerPage({
 
       {/* Action Forms Grid */}
       <div className="grid gap-5 lg:grid-cols-3">
-        <AddCreditForm customerId={customer.id} idempotencyKey={randomUUID()} today={referenceDate} />
+        <AddCreditForm
+          customerId={customer.id}
+          idempotencyKey={randomUUID()}
+          today={referenceDate}
+          prefill={intent === "add" ? { amount, focus: true } : undefined}
+        />
         <RepaymentForm
           customerId={customer.id}
           idempotencyKey={randomUUID()}
           today={referenceDate}
           disabled={account.balancePaise <= 0}
+          prefill={intent === "repay" ? { amount, focus: true } : undefined}
         />
         {membership.role === "OWNER" && options.length ? (
           <CorrectionForm customerId={customer.id} idempotencyKey={randomUUID()} options={options} />
